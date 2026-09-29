@@ -1,0 +1,42 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Test and tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Secrets — backend/.env holds live API keys and database credentials.
+# .env.example is the committed template.
+.env
+.env.*
+!.env.example
+
+# Node
+node_modules/
+
+# Next.js
+.next/
+next-env.d.ts
+
+# Generated parser/embedding test inputs. Rebuilt with
+# backend/fixtures/make_fixtures.py; the parsing tests skip themselves when the
+# files are absent, so the repo stays free of binaries.
+backend/fixtures/
+
+# Working documentation — planning notes, phase trackers and benchmarks that
+# are useful locally but are not part of the deliverable. README.md ships.
+*.md
+!README.md
+
+# Stray empty file left by a typo'd `touch ___init___.py`. Nothing imports it;
+# delete it rather than carrying it around.
+backend/___init___.py

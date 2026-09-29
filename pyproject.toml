@@ -1,0 +1,90 @@
+[project]
+name = "endnote"
+version = "0.1.0"
+description = "A document-grounded chat platform. Every answer cites the exact page."
+requires-python = ">=3.11"
+dependencies = [
+    # --- Web ---
+    "django>=5.2,<5.3",
+    # Real DRF. The previous pin of ">=0.0.1" resolved to a 0.0.1 placeholder
+    # package that ships no rest_framework module.
+    "djangorestframework>=3.18,<4.0",
+    "django-cors-headers>=4.9,<5.0",
+    "psycopg[binary]>=3.3,<4.0",
+    "python-dotenv>=1.2,<2.0",
+    # Enables the VectorField on Chunk.embedding. The `vector` extension
+    # itself is created by migration 0001, not by this package. Confirmed
+    # present on the Supabase instance at 0.8.2.
+    # Capped below 0.4 because langchain-postgres requires pgvector<0.4.
+    # 0.5.x is the current release; lifting this means dropping or forking
+    # langchain-postgres, which is not worth it at this scale.
+    "pgvector>=0.3.6,<0.4",
+
+    # --- ASGI. SSE and the async retrieval path both need a real async stack;
+    # the default sync WSGI worker serialises streams and times them out. ---
+    "uvicorn[standard]>=0.54,<1.0",
+
+    # --- Auth. Supabase signs ES256 (ECDSA P-256) tokens, verified against the
+    # project JWKS. The [crypto] extra is what supplies the EC implementation;
+    # without it PyJWT raises NotImplementedError at verify time. ---
+    "pyjwt[crypto]>=2.15,<3.0",
+    "httpx>=0.28,<1.0",
+
+    # --- One OpenAI-compatible client, two base_urls (Groq + Cloudflare). ---
+    "openai>=3.20,<4.0",
+
+    # --- Storage ---
+    "django-storages[s3]>=1.14,<2.0",
+    "whitenoise>=6.12,<7.0",
+]
+
+[project.optional-dependencies]
+# Parsing, needed from phase 1. Kept out of the base install because phase 0
+# does not need it.
+#
+# This used to be `unstructured[all-docs]==0.27.10`, which measured 968MB peak
+# on a 3-page PDF and 722MB on a DOCX — over the 512MB instance budget on its
+# own, before Django or the embedding model. The direct libraries below do the
+# same work at 33-37MB. Measured, not assumed: fixtures/measure_parsers.py.
+# The one capability given up is element classification, which fed heading
+# detection for PDFs; DOCX and PPTX headings come from Word/PowerPoint's own
+# metadata instead, which is a stronger signal. See api/pdf.py and architecture.md.
+ingest = [
+    "pdfminer.six>=20231228",
+    "python-docx>=1.1,<2.0",
+    "python-pptx>=1.0,<2.0",
+    "openpyxl>=3.1,<4.0",
+    # ONNX Runtime is the embedding backend. `torch` and `sentence-transformers`
+    # are deliberately absent: torch alone is 489MB, which is the whole budget.
+    # See fixtures/measure_imports.py.
+    "onnxruntime>=1.19",
+    "huggingface-hub>=0.26",
+    "tokenizers>=0.20",
+    "langchain-core>=1.6,<2.0",
+    "langchain-groq>=1.1,<2.0",
+    "langchain-postgres>=0.0.18,<0.1",
+    # langchain-cohere brings its own cohere SDK pin (<6.0). Do not add a
+    # direct `cohere` requirement here or the two conflict.
+    "langchain-cohere>=0.6,<0.7",
+]
+
+[dependency-groups]
+# Fixture generation for the page-number verification, and the measurement
+# scripts that justify the dependency choices above. The fixtures are checked in
+# as real files, so this group is only needed to regenerate them or re-run the
+# benchmarks, never to run the app or the tests.
+dev = [
+    "reportlab>=4.4,<5.0",
+    "pytest>=8.3,<10.0",
+    "pytest-django>=4.11,<5.0",
+]
+
+[tool.uv]
+# This is an application, not a library. Without this, uv_build looks for
+# src/endnote/, which does not exist, and the editable install points at a
+# missing directory.
+package = false
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
