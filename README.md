@@ -1,52 +1,157 @@
 # EndNote
 
-A document-grounded chat platform. Upload PDFs, Office documents, Markdown, text and code;
-ask questions; get answers that cite the exact page, with the passage highlighted.
+A study tool. Sign up, upload your lecture slides, papers and notes, then ask
+questions and get answers that cite the exact page they came from.
 
 ## Status
 
-Planning complete. Not yet scaffolded. See [PROGRESS.md](PROGRESS.md) for the live tracker
-and [roadmap.md](roadmap.md) for phase gates.
+The frontend is built and the backend has a working foundation: Django 6.1 with
+DRF, authenticated against Supabase using the SSR session cookie the browser
+already holds. Health, session and profile endpoints are live and tested.
 
-## The one constraint that shapes everything
+Not built yet: the document schema, uploads, the ingestion pipeline, retrieval
+and chat. Every list, document and answer on screen is still fixture data from
+`frontend/lib/mock/data.ts`.
 
-Groq's free tier is **1,000 requests/day and 100K–500K tokens/day, shared across the entire
-organization**. That works out to roughly 30–160 answers per day for all users combined.
+## Layout
 
-The product is free forever by decision. That makes quota enforcement not a billing feature
-but a survival requirement. It is designed in from the start rather than bolted on after the
-first outage. See [quotas.md](quotas.md).
+```
+backend/     Django 6.1 + DRF API
+frontend/    Next.js 16 app router, TypeScript, Tailwind v4
+```
 
-## Documents
+## Backend
 
-| File | What it covers |
-|---|---|
-| [project.md](project.md) | What we are building, for whom, and what we are deliberately not building |
-| [architecture.md](architecture.md) | System design, components, request flows, hosting |
-| [data-model.md](data-model.md) | Postgres schema, pgvector setup, indexes |
-| [api.md](api.md) | Endpoint surface, auth, streaming contract, error shapes |
-| [ingestion.md](ingestion.md) | Resumable cursor-based parsing pipeline |
-| [retrieval.md](retrieval.md) | Hybrid search, RRF fusion, reranking, the citation contract |
-| [quotas.md](quotas.md) | Per-user and global quota enforcement, cost ceilings |
-| [naming.md](naming.md) | Name research, domain options, brand reservations |
-| [decisions.md](decisions.md) | Decision log, including the ones reversed |
-| [risks.md](risks.md) | Known limits, failure modes, what breaks first |
-| [roadmap.md](roadmap.md) | Six phases with acceptance gates |
-| [PROGRESS.md](PROGRESS.md) | Current state, next action, blockers |
+```bash
+uv sync
+uv run python backend/manage.py migrate
+uv run python backend/manage.py runserver 127.0.0.1:8000
+```
 
-## Phases
+| Command | Purpose |
+| --- | --- |
+| `uv run pytest` | Test suite |
+| `uv run ruff check backend` | Lint |
+| `uv run ruff format backend` | Format |
+| `uv run python backend/manage.py check` | Django system check |
 
-| Phase | Scope | Gate |
-|---|---|---|
-| [0](phases/phase-0-auth-and-repl.md) | Auth end to end | Browser call reaches Django with verified JWT |
-| [1](phases/phase-1-upload-and-parse.md) | Upload and parsing | Per-page text with correct page numbers; ingest survives restart |
-| [2](phases/phase-2-retrieval.md) | Hybrid retrieval | ≥80% page-level recall@k=12 on golden set |
-| [3](phases/phase-3-chat-and-citations.md) | Chat and citations | Zero fabricated citations; page highlight works |
-| [4](phases/phase-4-quotas-and-polish.md) | Quotas and states | Clean 429 at cap; never a raw Groq 429 |
-| [5](phases/phase-5-deploy.md) | Deploy and tune | No failed ingest or lost history after cold start |
+| Endpoint | Auth | Purpose |
+| --- | --- | --- |
+| `GET /api/v1/health` | none | Liveness, plus whether Postgres is reachable |
+| `GET /api/v1/session` | optional | Whether the caller is signed in |
+| `GET /api/v1/me` | required | The caller's profile, created on first request |
 
-## Stack
+### How authentication works
 
-Next.js on Vercel Hobby · Django on Render Free · Supabase (auth, Postgres + pgvector,
-Storage) · Groq for generation · local ONNX Runtime (`bge-small-en-v1.5`) for embeddings ·
-LangChain core primitives · pdfminer.six / python-docx / python-pptx / openpyxl for parsing.
+There is no local user model and no Django `auth` app. Supabase owns identity;
+`Profile` is a local row keyed by the Supabase user id, created the first time
+someone calls `/api/v1/me`.
+
+The browser never sends a bearer token. `@supabase/ssr` holds the session in an
+httpOnly cookie, and the browser attaches it to the API. The backend reads that
+cookie, then asks Supabase Auth to resolve the token to a user.
+
+That last step is a deliberate trade. Verifying the JWT signature locally would
+save a network round trip, but Supabase projects sign either with a legacy
+shared secret or with newer asymmetric keys, and a local verifier has to be
+configured to match whichever the project happens to use. Asking the authority
+is one small request and cannot drift. Results are cached by token hash, and a
+verified access token is immutable, so a cache hit cannot go stale.
+
+A Supabase outage returns **503**, not 401. Collapsing those two is how a
+dependency failure turns into every user appearing logged out.
+
+### The cookie format
+
+`@supabase/ssr` does not store the session as a plain cookie. It writes
+`base64-` + base64url(JSON), split across `<name>.0`, `<name>.1` … chunks once
+the session outgrows one cookie. `backend/api/supabase_cookies.py` implements
+that, verified against the copy in `frontend/node_modules/@supabase/ssr`; the
+tests build fixtures in the real format, because a fixture that invents its own
+format just agrees with whatever the parser happens to do.
+
+Two traps, both silent. The `base64-` prefix must be stripped *before*
+decoding, and since `-` is itself a valid base64url character, decoding without
+stripping it yields plausible garbage rather than an error. And a project set to
+`cookieEncoding: "plain"` stores raw JSON with no prefix at all.
+
+### Testing
+
+`uv run pytest` runs against in-memory SQLite. It is hermetic and takes well
+under a second, and nothing a test does can reach the live database.
+
+The alternative does not work against this project. Django creates and drops a
+test database around every run, and neither route to Supabase allows the drop:
+through the pooler, Supavisor holds an idle session open, and the direct host is
+an unreliable IPv6 path. That combination left a stray `endnote_test` database
+on the project, which still needs dropping by hand.
+
+Once pgvector and full-text search land, SQLite stops being enough and the test
+target has to become a real Postgres. Set `ENDNOTE_TEST_DB=postgres` and point
+it at a local container or a dedicated project — not this one.
+
+## Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev        # http://localhost:3000
+```
+
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Dev server |
+| `npm run build` | Production build |
+| `npm run typecheck` | `tsc --noEmit` |
+| `npm run lint` | ESLint |
+
+Routes: `/` marketing page, `/chat` the three-column interface, `/pipeline` the
+ingestion board, `/login` sign in and sign up.
+
+The signed-out experience is deliberately complete rather than a wall: `/chat`
+answers questions against a sample library so there is something to judge, and
+the upload panel is the gate — the login modal opens on the first upload
+attempt, which is the first action that needs an account.
+
+Session handling uses `@supabase/ssr` with httpOnly cookies, refreshed by
+`proxy.ts` on every request. Chat history is server-side and account-scoped, so
+a signed-out conversation is not written anywhere and is gone on refresh.
+
+## Configuration
+
+Copy each template next to it and fill in the blanks:
+
+```bash
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env.local
+```
+
+`.env` and `.env.local` are gitignored. Keep them that way — the backend one
+holds database credentials and API keys. `backend/.env.example` documents every
+variable the backend reads, including the ones that have sensible defaults.
+
+Three notes on the values:
+
+- `SUPABASE_DB_HOST` must be the **session pooler** host, not the direct host.
+  Deploy targets without IPv6 fail to connect otherwise, and the failure looks
+  like a bad password rather than a networking problem.
+- `EMBED_MODEL` and `EMBEDDING_DIM` have to agree. Switching embedding models
+  means re-embedding every stored chunk; vectors from two different models are
+  not comparable even at the same dimension.
+- `SUPABASE_DB_USER` is `postgres.<ref>` for the pooler. The direct host has no
+  such role, which is why the backend strips the suffix when it needs one.
+
+## Database
+
+The `vector` extension is installed and the schema has just started: `profiles`,
+created by `backend/api/migrations/0001_initial.py`. Everything else begins from
+nothing. The old schema, its rows and all auth users were dropped rather than
+migrated.
+
+Two things need clearing by hand in the Supabase dashboard:
+
+- **Storage → document** holds two orphaned files. Supabase blocks deleting
+  them over SQL. Nothing references them.
+- A stray `endnote_test` database, left by the first test run before the test
+  database was moved off Supabase. `DROP DATABASE IF EXISTS endnote_test;` in the
+  SQL editor. It is empty and unused.

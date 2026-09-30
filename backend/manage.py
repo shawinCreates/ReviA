@@ -1,22 +1,37 @@
 #!/usr/bin/env python
-"""Django's command-line utility for administrative tasks."""
+"""Django management entrypoint.
+
+Run through uv so the interpreter matches the locked environment:
+
+    uv run python backend/manage.py check
+    uv run python backend/manage.py migrate
+"""
+
+from __future__ import annotations
+
 import os
 import sys
+from pathlib import Path
+
+BACKEND_DIR = Path(__file__).resolve().parent
 
 
-def main():
-    """Run administrative tasks."""
-    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
+def main() -> None:
+    # `config` and `api` are top-level packages inside backend/, so that
+    # directory has to be importable regardless of the current working
+    # directory the command is invoked from.
+    sys.path.insert(0, str(BACKEND_DIR))
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+
     try:
         from django.core.management import execute_from_command_line
-    except ImportError as exc:
+    except ImportError as exc:  # pragma: no cover - import guard
         raise ImportError(
-            "Couldn't import Django. Are you sure it's installed and "
-            "available on your PYTHONPATH environment variable? Did you "
-            "forget to activate a virtual environment?"
+            "Django is not importable. Run commands with `uv run` so the project "
+            "virtual environment is on the path."
         ) from exc
     execute_from_command_line(sys.argv)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -1,29 +1,37 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Space_Grotesk, Space_Mono } from "next/font/google";
+
+import { APP_NAME, APP_TAGLINE } from "@/lib/config";
+
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const grotesk = Space_Grotesk({
   subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  variable: "--font-grotesk",
+  display: "swap",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const mono = Space_Mono({
   subsets: ["latin"],
+  weight: ["400", "700"],
+  variable: "--font-mono-face",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "EndNote",
-  description: "Ask questions about your own documents.",
+  title: {
+    default: `${APP_NAME} — ${APP_TAGLINE}`,
+    template: `%s — ${APP_NAME}`,
+  },
+  description:
+    "Upload your lecture slides, papers and notes. Ask a question and get an answer built only from what you uploaded, with the page cited for every claim.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
-      <body className="min-h-full flex flex-col">{children}</body>
+    <html lang="en" className={`${grotesk.variable} ${mono.variable}`}>
+      <body>{children}</body>
     </html>
   );
 }

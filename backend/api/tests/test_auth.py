@@ -1,265 +1,230 @@
-"""
-Auth middleware tests.
+"""Authentication behaviour.
 
-These cover the cases phases/phase-0-auth-and-repl.md names explicitly: a
-missing token, a malformed token, and an expired token, all of which must be
-401 and must never be 500.
+Token verification is the security boundary, so these tests cover the split
+between "your token is bad" (401) and "our dependency is down" (503). Collapsing
+those two is how a Supabase outage turns into every user appearing logged out.
 """
 
 from __future__ import annotations
 
 import uuid
-from datetime import timedelta
 
+import httpx
 import pytest
+from rest_framework.test import APIClient
 
-from api.jwt_auth import AuthError, verify_token
+from api.supabase_auth import (
+    TokenVerificationError,
+    _decode_jwt_claims,
+    _token_fingerprint,
+    verify_access_token,
+)
+from api.tests.conftest import build_cookie_value
 
-pytestmark = pytest.mark.django_db
-
-
-class TestRejectsBadTokens:
-    def test_missing_header_is_401(self, client):
-        response = client.get("/api/me")
-        assert response.status_code == 401
-        assert response.json()["error"]["code"] == "unauthenticated"
-
-    def test_empty_header_is_401(self, client):
-        response = client.get("/api/me", HTTP_AUTHORIZATION="")
-        assert response.status_code == 401
-
-    def test_garbage_token_is_401_not_500(self, client):
-        """Phase 0 calls this out specifically. A 500 here is a launch-day bug."""
-        response = client.get("/api/me", HTTP_AUTHORIZATION="Bearer notatoken")
-        assert response.status_code == 401
-        assert response.json()["error"]["code"] == "unauthenticated"
-
-    def test_wrong_scheme_is_401(self, client):
-        response = client.get("/api/me", HTTP_AUTHORIZATION="Basic abc123")
-        assert response.status_code == 401
-        assert "Bearer" in response.json()["error"]["message"]
-
-    def test_expired_token_is_401(self, client, jwks_server, make_token):
-        token = make_token(expires_delta=timedelta(hours=-2))
-        response = client.get("/api/me", HTTP_AUTHORIZATION=f"Bearer {token}")
-        assert response.status_code == 401
-        assert "expired" in response.json()["error"]["message"].lower()
-
-    def test_token_without_sub_is_401(self, client, jwks_server, signing_key):
-        """A token with no subject has no user, so it cannot be accepted."""
-        import jwt
-        from datetime import datetime, timezone
-
-        now = datetime.now(timezone.utc)
-        token = jwt.encode(
-            {
-                "iss": __import__("django.conf", fromlist=["settings"]).settings.SUPABASE_URL.rstrip("/")
-                + "/auth/v1",
-                "aud": "authenticated",
-                "exp": int((now + timedelta(hours=1)).timestamp()),
-            },
-            signing_key,
-            algorithm="ES256",
-            headers={"kid": "test-kid-1"},
-        )
-        response = client.get("/api/me", HTTP_AUTHORIZATION=f"Bearer {token}")
-        assert response.status_code == 401
-
-    def test_non_uuid_sub_is_401(self, client, jwks_server, make_token):
-        token = make_token(subject="not-a-uuid")
-        response = client.get("/api/me", HTTP_AUTHORIZATION=f"Bearer {token}")
-        assert response.status_code == 401
-        assert "uuid" in response.json()["error"]["message"].lower()
-
-    def test_wrong_issuer_is_401(self, client, jwks_server, make_token):
-        """A valid signature from a different Supabase project must not pass."""
-        token = make_token(issuer="https://someone-elses-project.supabase.co/auth/v1")
-        response = client.get("/api/me", HTTP_AUTHORIZATION=f"Bearer {token}")
-        assert response.status_code == 401
+COOKIE = "sb-abcdefghijklmnopqrst-auth-token"
 
 
-class TestAlgorithmConfusion:
-    def test_unsigned_token_is_rejected(self, client, jwks_server):
-        """
-        alg=none is the classic JWT attack. The algorithm allowlist is a
-        constant, so a token cannot select its own verification method.
-        """
-        import jwt
-        from datetime import datetime, timedelta, timezone
-
-        from django.conf import settings
-
-        now = datetime.now(timezone.utc)
-        token = jwt.encode(
-            {
-                "sub": str(uuid.uuid4()),
-                "iss": settings.SUPABASE_URL.rstrip("/") + "/auth/v1",
-                "aud": "authenticated",
-                "exp": int((now + timedelta(hours=1)).timestamp()),
-            },
-            key="",
-            algorithm="none",
-        )
-        response = client.get("/api/me", HTTP_AUTHORIZATION=f"Bearer {token}")
-        assert response.status_code == 401
-
-    def test_hs256_signed_with_public_key_is_rejected(self, client, jwks_server):
-        """
-        The other half of the confusion attack: sign with HS256 using the
-        public key as the HMAC secret. The allowlist is ES256 only, so this
-        fails even though the key material is genuinely correct.
-
-        The token is assembled by hand because PyJWT refuses to *sign* with a
-        PEM key, which is itself a good sign: it does not consider a PEM to be
-        a valid HMAC secret. An attacker would not be using PyJWT.
-        """
-        import base64
-        import hashlib
-        import hmac
-        import json
-        from datetime import datetime, timedelta, timezone
-
-        from cryptography.hazmat.primitives import serialization
-        from cryptography.hazmat.primitives.asymmetric import ec
-
-        from django.conf import settings
-
-        # A keypair standing in for "the verification key's public half".
-        public_key = ec.generate_private_key(ec.SECP256R1()).public_key()
-        public_pem = public_key.public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
-
-        def b64(raw: bytes) -> str:
-            return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
-
-        now = datetime.now(timezone.utc)
-        header = {"alg": "HS256", "typ": "JWT", "kid": "test-kid-1"}
-        payload = {
-            "sub": str(uuid.uuid4()),
-            "iss": settings.SUPABASE_URL.rstrip("/") + "/auth/v1",
-            "aud": "authenticated",
-            "exp": int((now + timedelta(hours=1)).timestamp()),
-        }
-        signing_input = f"{b64(json.dumps(header).encode())}.{b64(json.dumps(payload).encode())}"
-        signature = hmac.new(public_pem, signing_input.encode(), hashlib.sha256).digest()
-        token = f"{signing_input}.{b64(signature)}"
-
-        # Sanity check: the HMAC is genuine, so a verifier that honoured HS256
-        # and looked the key up by kid would accept this. It must still fail.
-        assert hmac.new(public_pem, signing_input.encode(), hashlib.sha256).digest()
-
-        response = client.get("/api/me", HTTP_AUTHORIZATION=f"Bearer {token}")
-        assert response.status_code == 401
+def _cookie_for(access_token: str) -> str:
+    """A single auth cookie in the format @supabase/ssr writes."""
+    return build_cookie_value(
+        {"access_token": access_token, "expires_at": 4_000_000_000, "refresh_token": "r"}
+    )
 
 
-class TestValidToken:
-    def test_me_returns_the_profile(self, client, jwks_server, make_token):
-        token = make_token(email="reader@example.com")
-        response = client.get("/api/me", HTTP_AUTHORIZATION=f"Bearer {token}")
-        assert response.status_code == 200
-
-        body = response.json()
-        assert body["email"] == "reader@example.com"
-        uuid.UUID(body["id"])  # raises if it is not a real UUID
-        assert body["created_at"]
-
-    def test_profile_row_is_created_on_first_request(
-        self, client, jwks_server, make_token
-    ):
-        from api.models import Profile
-
-        user_id = str(uuid.uuid4())
-        token = make_token(subject=user_id, email="new@example.com")
-
-        assert not Profile.objects.filter(id=user_id).exists()
-        response = client.get("/api/me", HTTP_AUTHORIZATION=f"Bearer {token}")
-        assert response.status_code == 200
-        assert Profile.objects.filter(id=user_id).exists()
-
-    def test_repeat_request_does_not_duplicate_the_profile(
-        self, client, jwks_server, make_token
-    ):
-        """The upsert is lazy but must be idempotent, not get-or-create per call."""
-        from api.models import Profile
-
-        user_id = str(uuid.uuid4())
-        token = make_token(subject=user_id)
-
-        for _ in range(3):
-            assert (
-                client.get("/api/me", HTTP_AUTHORIZATION=f"Bearer {token}").status_code
-                == 200
-            )
-        assert Profile.objects.filter(id=user_id).count() == 1
-
-    def test_email_change_is_reflected_in_the_mirror(
-        self, client, jwks_server, make_token
-    ):
-        """Supabase is the source of truth for the address."""
-        from api.models import Profile
-
-        user_id = str(uuid.uuid4())
-        first = make_token(subject=user_id, email="old@example.com")
-        client.get("/api/me", HTTP_AUTHORIZATION=f"Bearer {first}")
-
-        second = make_token(subject=user_id, email="new@example.com")
-        response = client.get("/api/me", HTTP_AUTHORIZATION=f"Bearer {second}")
-
-        assert response.json()["email"] == "new@example.com"
-        assert Profile.objects.get(id=user_id).email == "new@example.com"
+def _user_payload(user_id: str, email: str = "reader@example.com") -> dict:
+    return {"id": user_id, "email": email}
 
 
-class TestJwksCaching:
-    def test_key_is_fetched_once_across_many_requests(
-        self, client, jwks_server, make_token, monkeypatch
-    ):
-        """
-        Refetching per request would put the auth endpoint on the critical path
-        of every call. Assert the fetch count, not just the outcome.
-        """
-        from api import jwt_auth
+@pytest.fixture
+def mock_auth_api(monkeypatch):
+    """Replace the outbound Auth call with a controllable stub."""
 
-        calls = {"count": 0}
-        original_fetch = jwt_auth.JWKSCache._fetch
+    calls: list[str] = []
 
-        def counting_fetch(self):
-            calls["count"] += 1
-            return original_fetch(self)
+    def _install(status_code: int, payload: dict, *, raise_exc: Exception | None = None):
+        def _handler(request: httpx.Request) -> httpx.Response:
+            calls.append(request.headers.get("authorization", ""))
+            if raise_exc is not None:
+                raise raise_exc
+            return httpx.Response(status_code, json=payload)
 
-        monkeypatch.setattr(jwt_auth.JWKSCache, "_fetch", counting_fetch)
+        transport = httpx.MockTransport(_handler)
+        original = httpx.Client
 
-        token = make_token()
-        for _ in range(5):
-            assert (
-                client.get("/api/me", HTTP_AUTHORIZATION=f"Bearer {token}").status_code
-                == 200
-            )
-        assert calls["count"] == 1
+        def _patched(*args, **kwargs):
+            kwargs["transport"] = transport
+            return original(*args, **kwargs)
 
-    def test_unknown_kid_triggers_one_refresh(self, client, jwks_server, make_token):
-        """Supabase rotates keys. An unknown kid must refetch, not hard-fail."""
-        token = make_token(kid="a-rotated-kid")
-        response = client.get("/api/me", HTTP_AUTHORIZATION=f"Bearer {token}")
-        assert response.status_code == 200
+        monkeypatch.setattr(httpx, "Client", _patched)
+        return calls
+
+    return _install
 
 
-class TestVerifyTokenUnit:
-    def test_raises_auth_error_for_missing_jwks_url(self, monkeypatch, make_token):
-        from api import jwt_auth
+def test_valid_token_returns_user(mock_auth_api):
+    user_id = str(uuid.uuid4())
+    mock_auth_api(200, _user_payload(user_id))
 
-        monkeypatch.setattr(jwt_auth, "_jwks_cache", jwt_auth.JWKSCache(""))
-        with pytest.raises(AuthError) as excinfo:
-            verify_token(make_token())
-        assert excinfo.value.code == "auth_unavailable"
+    user = verify_access_token("valid-token")
 
-    def test_missing_supabase_url_is_a_config_error_not_a_crash(self, client):
-        """
-        A misconfigured deployment should fail with a clear 401-shaped auth
-        error, not a stack trace on every request.
-        """
-        from api import jwt_auth
+    assert user.id == user_id
+    assert user.email == "reader@example.com"
 
-        monkey = jwt_auth.JWKSCache("")
-        assert monkey._url == ""
+
+def test_rejected_token_raises_invalid_token(mock_auth_api):
+    mock_auth_api(401, {"message": "invalid"})
+
+    with pytest.raises(TokenVerificationError, match="invalid_token"):
+        verify_access_token("bad-token")
+
+
+def test_forbidden_is_treated_as_rejection(mock_auth_api):
+    mock_auth_api(403, {"message": "forbidden"})
+
+    with pytest.raises(TokenVerificationError, match="invalid_token"):
+        verify_access_token("bad-token")
+
+
+def test_server_error_is_reported_as_unavailable(mock_auth_api):
+    mock_auth_api(503, {"message": "down"})
+
+    with pytest.raises(TokenVerificationError, match="supabase_auth_unavailable"):
+        verify_access_token("some-token")
+
+
+def test_transport_failure_is_reported_as_unavailable(mock_auth_api):
+    mock_auth_api(0, {}, raise_exc=httpx.ConnectError("no route to host"))
+
+    with pytest.raises(TokenVerificationError, match="supabase_auth_unavailable"):
+        verify_access_token("some-token")
+
+
+def test_payload_without_id_is_not_trusted(mock_auth_api):
+    mock_auth_api(200, {"email": "nobody@example.com"})
+
+    with pytest.raises(TokenVerificationError, match="no user id"):
+        verify_access_token("weird-token")
+
+
+def test_verified_token_is_cached_and_not_reverified(mock_auth_api):
+    user_id = str(uuid.uuid4())
+    calls = mock_auth_api(200, _user_payload(user_id))
+
+    first = verify_access_token("cache-me")
+    second = verify_access_token("cache-me")
+
+    assert first.id == second.id == user_id
+    assert len(calls) == 1, "a verified token is immutable, so it should be cached"
+
+
+def test_rejected_token_is_not_cached(mock_auth_api):
+    calls = mock_auth_api(401, {"message": "invalid"})
+
+    for _ in range(2):
+        with pytest.raises(TokenVerificationError):
+            verify_access_token("never-good")
+
+    assert len(calls) == 2, "a rejection must not be remembered as a result"
+
+
+def test_fingerprint_is_stable_and_hides_the_token():
+    token = "super-secret-token-value"
+    fingerprint = _token_fingerprint(token)
+
+    assert fingerprint == _token_fingerprint(token)
+    assert token not in fingerprint
+    assert _token_fingerprint("other") != fingerprint
+
+
+def test_malformed_jwt_yields_no_claims():
+    assert _decode_jwt_claims("not-a-jwt") == {}
+    assert _decode_jwt_claims("a.b") == {}
+
+
+def test_jwt_claims_are_readable():
+    import base64
+    import json
+
+    payload = (
+        base64.urlsafe_b64encode(json.dumps({"email": "c@example.com"}).encode())
+        .decode()
+        .rstrip("=")
+    )
+    assert _decode_jwt_claims(f"header.{payload}.sig")["email"] == "c@example.com"
+
+
+@pytest.mark.django_db
+def test_me_requires_authentication():
+    response = APIClient().get("/api/v1/me")
+    assert response.status_code in (401, 403)
+
+
+@pytest.mark.django_db
+def test_me_creates_profile_on_first_request(mock_auth_api):
+    user_id = str(uuid.uuid4())
+    mock_auth_api(200, _user_payload(user_id, "owner@example.com"))
+
+    client = APIClient()
+    client.cookies[COOKIE] = _cookie_for("real-token")
+    response = client.get("/api/v1/me")
+
+    assert response.status_code == 200, response.content
+    body = response.json()
+    assert body["user"]["id"] == user_id
+    assert body["profile"]["email"] == "owner@example.com"
+    assert body["profile"]["id"] == user_id
+
+
+@pytest.mark.django_db
+def test_me_is_idempotent(mock_auth_api):
+    user_id = str(uuid.uuid4())
+    mock_auth_api(200, _user_payload(user_id))
+
+    client = APIClient()
+    client.cookies[COOKIE] = _cookie_for("real-token")
+
+    first = client.get("/api/v1/me").json()
+    second = client.get("/api/v1/me").json()
+
+    assert first["profile"]["created_at"] == second["profile"]["created_at"]
+
+
+@pytest.mark.django_db
+def test_rejected_token_returns_401(mock_auth_api):
+    mock_auth_api(401, {"message": "invalid"})
+
+    client = APIClient()
+    client.cookies[COOKIE] = _cookie_for("stale-token")
+    response = client.get("/api/v1/me")
+
+    assert response.status_code == 401
+
+
+@pytest.mark.django_db
+def test_auth_outage_returns_503_not_401(mock_auth_api):
+    mock_auth_api(500, {"message": "boom"})
+
+    client = APIClient()
+    client.cookies[COOKIE] = _cookie_for("good-token")
+    response = client.get("/api/v1/me")
+
+    assert response.status_code == 503
+
+
+@pytest.mark.django_db
+def test_session_endpoint_reports_signed_out_without_cookies():
+    response = APIClient().get("/api/v1/session")
+    assert response.status_code == 200
+    assert response.json() == {"authenticated": False, "user_id": None}
+
+
+@pytest.mark.django_db
+def test_session_endpoint_reports_signed_in(mock_auth_api):
+    user_id = str(uuid.uuid4())
+    mock_auth_api(200, _user_payload(user_id))
+
+    client = APIClient()
+    client.cookies[COOKIE] = _cookie_for("real-token")
+    body = client.get("/api/v1/session").json()
+
+    assert body == {"authenticated": True, "user_id": user_id}
