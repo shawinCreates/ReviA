@@ -19,46 +19,17 @@ from api.supabase_auth import (
     _token_fingerprint,
     verify_access_token,
 )
-from api.tests.conftest import build_cookie_value
+from api.tests.conftest import AUTH_COOKIE, auth_cookie
 
-COOKIE = "sb-abcdefghijklmnopqrst-auth-token"
+COOKIE = AUTH_COOKIE
 
 
 def _cookie_for(access_token: str) -> str:
-    """A single auth cookie in the format @supabase/ssr writes."""
-    return build_cookie_value(
-        {"access_token": access_token, "expires_at": 4_000_000_000, "refresh_token": "r"}
-    )
+    return auth_cookie(access_token)
 
 
 def _user_payload(user_id: str, email: str = "reader@example.com") -> dict:
     return {"id": user_id, "email": email}
-
-
-@pytest.fixture
-def mock_auth_api(monkeypatch):
-    """Replace the outbound Auth call with a controllable stub."""
-
-    calls: list[str] = []
-
-    def _install(status_code: int, payload: dict, *, raise_exc: Exception | None = None):
-        def _handler(request: httpx.Request) -> httpx.Response:
-            calls.append(request.headers.get("authorization", ""))
-            if raise_exc is not None:
-                raise raise_exc
-            return httpx.Response(status_code, json=payload)
-
-        transport = httpx.MockTransport(_handler)
-        original = httpx.Client
-
-        def _patched(*args, **kwargs):
-            kwargs["transport"] = transport
-            return original(*args, **kwargs)
-
-        monkeypatch.setattr(httpx, "Client", _patched)
-        return calls
-
-    return _install
 
 
 def test_valid_token_returns_user(mock_auth_api):

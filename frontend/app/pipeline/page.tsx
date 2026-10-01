@@ -4,11 +4,13 @@ import { Suspense } from "react";
 import { AppHeader } from "@/components/app-header";
 import { PipelineBoard } from "@/components/pipeline/board";
 import { getUser } from "@/lib/auth";
+import { loadDocuments } from "@/lib/api-server";
 
 export const metadata = { title: "Ingestion pipeline" };
 
 export default async function PipelinePage() {
   const user = await getUser();
+  const documents = user ? await loadDocuments() : [];
 
   return (
     <div className="flex min-h-dvh flex-col">
@@ -38,7 +40,7 @@ export default async function PipelinePage() {
           </div>
 
           <Suspense fallback={<div className="mt-14 h-64 bg-sunk" />}>
-            <PipelineBoard signedIn={Boolean(user)} />
+            <PipelineBoard signedIn={Boolean(user)} initialDocuments={documents} />
           </Suspense>
         </div>
       </main>

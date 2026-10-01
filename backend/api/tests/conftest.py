@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import base64
 import json
+import uuid
 from typing import Any
 
+import httpx
 import pytest
 
 
@@ -86,5 +88,93 @@ def make_session_cookie(session_payload):
 
         chunks = [value[i : i + chunk_size] for i in range(0, len(value), chunk_size)]
         return {f"{cookie_name}.{index}": chunk for index, chunk in enumerate(chunks)}
+
+    return _make
+
+
+AUTH_COOKIE = "sb-abcdefghijklmnopqrst-auth-token"
+
+
+def auth_cookie(access_token: str = "header.payload.signature") -> str:
+    """A single auth cookie in the format @supabase/ssr writes."""
+    return build_cookie_value(
+        {"access_token": access_token, "expires_at": 4_000_000_000, "refresh_token": "r"}
+    )
+
+
+@pytest.fixture
+def mock_auth_api(monkeypatch):
+    """Replace the outbound Auth call with a controllable stub."""
+
+    calls: list[str] = []
+
+    def _install(status_code: int, payload: dict, *, raise_exc: Exception | None = None):
+        def _handler(request: httpx.Request) -> httpx.Response:
+            calls.append(request.headers.get("authorization", ""))
+            if raise_exc is not None:
+                raise raise_exc
+            return httpx.Response(status_code, json=payload)
+
+        transport = httpx.MockTransport(_handler)
+        original = httpx.Client
+
+        def _patched(*args, **kwargs):
+            kwargs["transport"] = transport
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(httpx, "Client", _patched)
+        return calls
+
+    return _install
+
+
+@pytest.fixture
+def token_auth(monkeypatch):
+    """Resolve any `token-for-<uuid>` to that Supabase user.
+
+    One transport for the whole test, dispatching on the bearer token, rather
+    than a transport installed per client. Re-patching `httpx.Client` per client
+    only works for the first one: the last patch wins, so earlier clients end up
+    verified as whichever identity was installed most recently. Dispatching on
+    the token means several accounts can be in flight at once, which is what the
+    ownership tests need.
+    """
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        header = request.headers.get("authorization", "")
+        token = header.removeprefix("Bearer ").strip()
+        user_id = token.removeprefix("token-for-")
+        if not user_id or user_id == token:
+            return httpx.Response(401, json={"message": "invalid token"})
+        return httpx.Response(200, json={"id": user_id, "email": f"{user_id[:8]}@example.com"})
+
+    transport = httpx.MockTransport(_handler)
+    original = httpx.Client
+
+    def _patched(*args, **kwargs):
+        kwargs["transport"] = transport
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "Client", _patched)
+
+
+@pytest.fixture
+def auth_client(token_auth):
+    """Build an API client that authenticates as a given Supabase user.
+
+    Two clients built from the same test are two different accounts, which is
+    how the ownership tests check that one user cannot see another's rows.
+    """
+
+    from rest_framework.test import APIClient
+
+    def _make(user_id: str | None = None, email: str | None = None):
+        resolved = user_id or str(uuid.uuid4())
+        client = APIClient()
+        client.cookies[AUTH_COOKIE] = auth_cookie(f"token-for-{resolved}")
+        # Handy for assertions, and the same value the server resolves.
+        client.owner_id = resolved
+        client.email = email
+        return client
 
     return _make

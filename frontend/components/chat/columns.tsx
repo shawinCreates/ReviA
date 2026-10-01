@@ -1,105 +1,101 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { DEMO_MESSAGES, DEMO_SESSIONS, SUGGESTED_QUESTIONS } from "@/lib/mock/data";
-import type { ChatSession, Message } from "@/lib/types";
-import { Send } from "@/components/icons";
+import { AuthModal } from "@/components/auth-modal";
+import { Plus, Send } from "@/components/icons";
 import { Button } from "@/components/ui";
+import type { ChatSession, Message } from "@/lib/types";
 
-const CANDIDATE_ANSWER =
-  "Yes. A minister exercising a statutory duty is a public body for judicial review [S1]. What changes is the intensity: a decision taken under a wide discretion is examined for rationality, not correctness [S2].";
+export const ASK_REASON =
+  "Sign in and you can ask your own documents questions, with every answer kept between visits.";
 
-export function ChatColumn({ signedIn }: { signedIn: boolean }) {
-  const [messages, setMessages] = useState<Message[]>(DEMO_MESSAGES);
+export function ChatColumn({
+  signedIn,
+  messages,
+  pending,
+  error,
+  onAsk,
+  onDismissError,
+  readyCount,
+}: {
+  signedIn: boolean;
+  messages: Message[];
+  pending: boolean;
+  error: string | null;
+  onAsk: (question: string) => void;
+  onDismissError: () => void;
+  readyCount: number;
+}) {
   const [draft, setDraft] = useState("");
-  const [pending, setPending] = useState(false);
+  const [authOpen, setAuthOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     const node = scrollRef.current;
     if (node) node.scrollTop = node.scrollHeight;
   }, [messages, pending]);
 
-  async function send(text: string) {
-    const question = text.trim();
-    if (!question || pending) return;
+  // The advertised shortcut from the landing page. Scoped to this page so it
+  // cannot swallow "/" while the user is typing a path or a fraction.
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable) return;
+
+      event.preventDefault();
+      inputRef.current?.focus();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const sourceCount = useMemo(() => {
+    const lastAssistant = [...messages].reverse().find((entry) => entry.role === "assistant");
+    return lastAssistant?.citations.length ?? 0;
+  }, [messages]);
+
+  const title = useMemo(() => {
+    if (pending) return "Working";
+    const lastUser = [...messages].reverse().find((entry) => entry.role === "user");
+    if (!lastUser) return "New conversation";
+    return lastUser.content.length > 48 ? `${lastUser.content.slice(0, 48).trimEnd()}…` : lastUser.content;
+  }, [messages, pending]);
+
+  function submit() {
+    const question = draft.trim();
+    if (!question) return;
+
+    // A signed-out visitor cannot reach the API at all, so the honest response is
+    // to ask them to sign in — not to simulate an answer.
+    if (!signedIn) {
+      setAuthOpen(false);
+      setTimeout(() => setAuthOpen(true), 0);
+      return;
+    }
+    if (pending) return;
 
     setDraft("");
-    setPending(true);
-    setMessages((current) => [
-      ...current,
-      {
-        id: `local-${current.length}`,
-        role: "user",
-        content: question,
-        citations: [],
-        refused: false,
-        uncited: false,
-        createdAt: new Date().toISOString(),
-      },
-    ]);
-
-    const isGuestQuestion = !signedIn;
-
-    await new Promise((resolve) => setTimeout(resolve, 650));
-
-    setMessages((current) => [
-      ...current,
-      {
-        id: `local-${current.length}-a`,
-        role: "assistant",
-        content: CANDIDATE_ANSWER,
-        citations: [
-          {
-            label: "S1",
-            page: 7,
-            documentId: "doc-natlaw",
-            filename: "Constitutional Law — Week 4 Notes.pdf",
-            snippet: "Public bodies include ministers exercising statutory duties.",
-          },
-          {
-            label: "S2",
-            page: 9,
-            documentId: "doc-natlaw",
-            filename: "Constitutional Law — Week 4 Notes.pdf",
-            snippet: "Wider discretion narrows the court to a rationality review.",
-          },
-        ],
-        refused: false,
-        uncited: false,
-        createdAt: new Date().toISOString(),
-      },
-    ]);
-
-    if (isGuestQuestion) {
-      setMessages((current) => [
-        ...current,
-        {
-          id: `local-${current.length}-n`,
-          role: "user",
-          content: "This conversation is not being saved. Create an account to keep it.",
-          citations: [],
-          refused: false,
-          uncited: false,
-          createdAt: new Date().toISOString(),
-        },
-      ]);
-    }
-
-    setPending(false);
+    onAsk(question);
   }
+
+  const blocked = signedIn && readyCount === 0;
 
   return (
     <section className="flex min-w-0 flex-1 flex-col bg-canvas">
       <header className="flex h-11 shrink-0 items-center gap-3 border-b border-line px-5">
-        <p className="truncate text-[13px] text-ink">Judicial review</p>
+        <p className="truncate text-[13px] text-ink">{title}</p>
         {!signedIn ? (
           <span className="shrink-0 rounded-full bg-pale-yellow-bg px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.06em] text-pale-yellow-ink">
             Sample library
           </span>
         ) : null}
-        <span className="ml-auto shrink-0 font-mono text-[11px] text-faint">4 sources</span>
+        <span className="ml-auto shrink-0 font-mono text-[11px] text-faint">
+          {sourceCount > 0 ? `${sourceCount} ${sourceCount === 1 ? "source" : "sources"}` : ""}
+        </span>
       </header>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-7">
@@ -111,7 +107,40 @@ export function ChatColumn({ signedIn }: { signedIn: boolean }) {
           {pending ? (
             <div className="flex items-center gap-2 text-[13px] text-muted">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-faint" />
-              Reading four documents
+              Searching your library and writing an answer
+            </div>
+          ) : null}
+
+          {error ? (
+            <div className="rounded-[8px] border border-pale-red-ink/30 bg-pale-red-bg px-4 py-3">
+              <p className="text-[13px] leading-relaxed text-pale-red-ink">{error}</p>
+              <div className="mt-2.5 flex gap-3">
+                <button
+                  type="button"
+                  onClick={onDismissError}
+                  className="text-[12px] text-pale-red-ink underline underline-offset-4 opacity-70 hover:opacity-100"
+                >
+                  Dismiss
+                </button>
+                {signedIn ? (
+                  <button
+                    type="button"
+                    onClick={() => onAsk(draft.trim() || "Try that again")}
+                    className="text-[12px] text-pale-red-ink underline underline-offset-4 hover:font-medium"
+                  >
+                    Ask again
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
+          {blocked && messages.length === 0 && !error ? (
+            <div className="rounded-[8px] border border-line bg-surface px-4 py-3">
+              <p className="text-[13px] leading-relaxed text-muted">
+                Nothing is searchable yet. Upload a document on the right, wait for it
+                to reach <span className="text-ink">Ready</span>, then ask.
+              </p>
             </div>
           ) : null}
         </div>
@@ -119,39 +148,42 @@ export function ChatColumn({ signedIn }: { signedIn: boolean }) {
 
       <div className="shrink-0 border-t border-line bg-canvas px-5 py-4">
         <div className="mx-auto max-w-[68ch]">
-          {!signedIn && messages.length <= 1 ? (
-            <div className="mb-3 flex flex-wrap gap-2">
-              {SUGGESTED_QUESTIONS.map((question) => (
-                <button
-                  key={question}
-                  type="button"
-                  onClick={() => send(question)}
-                  className="rounded-full border border-line bg-surface px-3 py-1.5 text-[12px] text-muted transition-colors hover:border-line-strong hover:text-ink"
-                >
-                  {question}
-                </button>
-              ))}
+          {!signedIn ? (
+            <div className="mb-3 flex flex-wrap items-center gap-2 text-[12px] text-faint">
+              <span>Asking a question needs an account.</span>
+              <button
+                type="button"
+                onClick={() => setAuthOpen(true)}
+                className="text-ink underline underline-offset-4"
+              >
+                Sign in
+              </button>
             </div>
           ) : null}
 
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              send(draft);
+              submit();
             }}
             className="flex items-end gap-2.5"
           >
             <textarea
+              ref={inputRef}
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
-                  send(draft);
+                  submit();
                 }
               }}
               rows={1}
-              placeholder="Ask something your documents answer"
+              placeholder={
+                signedIn
+                  ? "Ask something your documents answer"
+                  : "Sign in to ask your own documents"
+              }
               className="max-h-40 min-h-11 flex-1 resize-none rounded-[6px] border border-line bg-surface px-3.5 py-3 text-[14px] leading-relaxed text-ink outline-none transition-colors placeholder:text-faint focus:border-ink"
             />
             <Button type="submit" disabled={!draft.trim() || pending} aria-label="Send">
@@ -160,6 +192,13 @@ export function ChatColumn({ signedIn }: { signedIn: boolean }) {
           </form>
         </div>
       </div>
+
+      <AuthModal
+        open={authOpen}
+        onClose={() => setAuthOpen(false)}
+        reason={ASK_REASON}
+        next="/chat"
+      />
     </section>
   );
 }
@@ -183,6 +222,18 @@ function MessageBlock({ message }: { message: Message }) {
         ))}
       </div>
 
+      {message.refused ? (
+        <p className="mt-3 text-[12px] text-faint">
+          Nothing in your library answered that, so nothing was invented.
+        </p>
+      ) : null}
+
+      {message.uncited ? (
+        <p className="mt-3 text-[12px] text-pale-yellow-ink">
+          The answer came back without citing a source, so treat it as unverified.
+        </p>
+      ) : null}
+
       {message.citations.length > 0 ? (
         <div className="mt-5 flex flex-wrap gap-2">
           {message.citations.map((citation) => (
@@ -191,7 +242,8 @@ function MessageBlock({ message }: { message: Message }) {
               className="max-w-[46ch] rounded-[8px] border border-line bg-surface p-3"
             >
               <p className="font-mono text-[10px] uppercase tracking-[0.08em] text-pale-blue-ink">
-                {citation.label} &middot; {citation.filename} &middot; p. {citation.page}
+                {citation.label} &middot; {citation.filename} &middot;{" "}
+                {citation.page > 0 ? `p. ${citation.page}` : "no page"}
               </p>
               <p className="mt-1.5 text-[12px] leading-relaxed text-muted">{citation.snippet}</p>
             </div>
@@ -202,10 +254,19 @@ function MessageBlock({ message }: { message: Message }) {
   );
 }
 
-export function HistoryColumn({ signedIn }: { signedIn: boolean }) {
-  const [sessions, setSessions] = useState<ChatSession[]>(DEMO_SESSIONS);
-  const [activeId, setActiveId] = useState<string>(DEMO_SESSIONS[0].id);
-
+export function HistoryColumn({
+  signedIn,
+  sessions,
+  activeId,
+  onSelect,
+  onNew,
+}: {
+  signedIn: boolean;
+  sessions: ChatSession[];
+  activeId: string | null;
+  onSelect: (id: string) => void;
+  onNew: () => void;
+}) {
   return (
     <aside className="hidden w-[248px] shrink-0 flex-col border-r border-line bg-surface lg:flex">
       <div className="flex h-11 shrink-0 items-center px-5">
@@ -219,7 +280,7 @@ export function HistoryColumn({ signedIn }: { signedIn: boolean }) {
             <button
               key={session.id}
               type="button"
-              onClick={() => setActiveId(session.id)}
+              onClick={() => onSelect(session.id)}
               className={`mb-0.5 w-full rounded-[6px] px-3 py-2.5 text-left transition-colors ${
                 active ? "bg-sunk" : "hover:bg-sunk/60"
               }`}
@@ -235,24 +296,22 @@ export function HistoryColumn({ signedIn }: { signedIn: boolean }) {
             </button>
           );
         })}
+
+        {signedIn && sessions.length === 0 ? (
+          <p className="px-3 py-3 text-[12px] leading-relaxed text-faint">
+            Your conversations appear here once you ask something.
+          </p>
+        ) : null}
       </div>
 
       <div className="shrink-0 border-t border-line p-3">
         {signedIn ? (
           <button
             type="button"
-            onClick={() => {
-              const next: ChatSession = {
-                id: `local-${sessions.length}`,
-                title: "New conversation",
-                createdAt: new Date().toISOString(),
-                messageCount: 0,
-              };
-              setSessions((current) => [next, ...current]);
-              setActiveId(next.id);
-            }}
-            className="w-full rounded-[6px] border border-line px-3 py-2 text-[13px] text-ink transition-colors hover:border-line-strong hover:bg-sunk"
+            onClick={onNew}
+            className="flex w-full items-center justify-center gap-2 rounded-[6px] border border-line px-3 py-2 text-[13px] text-ink transition-colors hover:border-line-strong hover:bg-sunk"
           >
+            <Plus size={14} />
             New conversation
           </button>
         ) : (

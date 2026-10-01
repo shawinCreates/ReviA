@@ -1,8 +1,12 @@
-import Link from "next/link";
+"use client";
 
-import { DEMO_DOCUMENTS, PIPELINE_DOCUMENTS, documentsByStage } from "@/lib/mock/data";
+import Link from "next/link";
+import { useMemo } from "react";
+
 import { STAGES, STAGE_LABELS } from "@/lib/config";
+import { DEMO_PIPELINE_DOCUMENTS, documentsByStage } from "@/lib/mock/data";
 import type { LibraryDocument } from "@/lib/types";
+import { useLibrary } from "@/lib/use-library";
 import { Alert, Check, FileText } from "@/components/icons";
 import { ButtonLink } from "@/components/ui";
 
@@ -15,10 +19,26 @@ const BLURB = {
   failed: "Stopped, with the reason given",
 } as const;
 
-export function PipelineBoard({ signedIn = false }: { signedIn?: boolean }) {
-  const documents = signedIn ? PIPELINE_DOCUMENTS : DEMO_DOCUMENTS;
-  const grouped = documentsByStage(documents);
-  const active = documents.filter((document) => document.status !== "ready").length;
+const IN_FLIGHT = new Set(["queued", "parsing", "chunking", "embedding"]);
+
+export function PipelineBoard({
+  signedIn = false,
+  initialDocuments = [],
+}: {
+  signedIn?: boolean;
+  initialDocuments?: LibraryDocument[];
+}) {
+  // The board is a live view of the same library the chat column reads, so it
+  // uses the same hook rather than a second, divergent copy of the pipeline.
+  const library = useLibrary({
+    signedIn,
+    initial: initialDocuments,
+    fallback: DEMO_PIPELINE_DOCUMENTS,
+  });
+
+  const documents = library.documents;
+  const grouped = useMemo(() => documentsByStage(documents), [documents]);
+  const active = documents.filter((entry) => IN_FLIGHT.has(entry.status)).length;
 
   return (
     <div className={signedIn ? "mt-14" : "mt-12"}>
@@ -33,6 +53,12 @@ export function PipelineBoard({ signedIn = false }: { signedIn?: boolean }) {
           <p className="text-[13px] text-muted">Showing the sample library</p>
         ) : null}
       </div>
+
+      {library.error ? (
+        <p className="mt-4 rounded-[8px] bg-pale-red-bg px-4 py-2.5 text-[12px] leading-relaxed text-pale-red-ink">
+          {library.error}
+        </p>
+      ) : null}
 
       <div className="mt-6 grid gap-px overflow-hidden rounded-[10px] border border-line bg-line sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {STAGES.map((stage) => {

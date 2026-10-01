@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:mapping": "tsx scripts/check-mapping.mts",
+    "check:api": "tsx scripts/check-live-data.mts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.7.0",
@@ -26,6 +28,7 @@
     "eslint-config-next": "^16.3.7",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.14",
+    "tsx": "^4.23.15",
     "typescript": "^5.9.2"
   }
 }

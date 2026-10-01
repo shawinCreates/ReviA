@@ -12,6 +12,19 @@ dependencies = [
     "pgvector",
     "python-dotenv",
     "httpx",
+    # Supabase Storage is S3-compatible, and boto3 does multipart uploads and
+    # range reads properly, which the ingestion step needs for large files.
+    "boto3",
+    # Document text extraction, one reader per allowed format.
+    "pypdf",
+    "python-docx",
+    "python-pptx",
+    # Vector normalisation and nearest-neighbour arithmetic. pgvector's Python
+    # side already requires it, and the retrieval layer uses it directly.
+    "numpy",
+    # The in-process embedding model, so the app embeds text without an external
+    # account. ONNX-based, so it does not pull in a deep learning framework.
+    "fastembed",
 ]
 
 [dependency-groups]
@@ -40,10 +53,16 @@ target-version = "py314"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
+[tool.ruff.lint.isort]
+# `api` and `config` are top-level packages inside backend/, not third-party
+# code, and migrations import from them.
+known-first-party = ["api", "config"]
+
 [tool.ruff.lint.per-file-ignores]
 # RUF012 wants mutable class attributes annotated as ClassVar. Django and DRF
-# both read migrations, serializer Meta and view class attributes as plain
-# lists, and annotating them would be noise that fights the frameworks.
-"**/migrations/*.py" = ["RUF012"]
+# both read migrations, model Meta, serializer Meta and view class attributes as
+# plain lists, and annotating them would be noise that fights the frameworks.
+"**/migrations/*.py" = ["RUF012", "E501"]
+"**/models.py" = ["RUF012"]
 "**/serializers.py" = ["RUF012"]
 "**/views.py" = ["RUF012"]

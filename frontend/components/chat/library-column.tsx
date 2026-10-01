@@ -4,8 +4,7 @@ import { useRef, useState } from "react";
 
 import { AuthModal, UPLOAD_REASON } from "@/components/auth-modal";
 import { FileText, Trash, Upload } from "@/components/icons";
-import { DEMO_DOCUMENTS } from "@/lib/mock/data";
-import { MAX_UPLOAD_BYTES, STAGE_LABELS } from "@/lib/config";
+import { MAX_UPLOAD_BYTES, STAGE_LABELS, SUPPORTED_UPLOAD_EXTENSIONS } from "@/lib/config";
 import type { LibraryDocument } from "@/lib/types";
 import { Badge, Button, ButtonLink } from "@/components/ui";
 
@@ -22,10 +21,28 @@ function megabytes(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-export function LibraryColumn({ signedIn }: { signedIn: boolean }) {
-  const [documents, setDocuments] = useState<LibraryDocument[]>(DEMO_DOCUMENTS);
+export function LibraryColumn({
+  signedIn,
+  documents,
+  uploading,
+  deletingId,
+  error,
+  onUpload,
+  onRemove,
+  onDismissError,
+}: {
+  signedIn: boolean;
+  documents: LibraryDocument[];
+  uploading: string[];
+  deletingId: string | null;
+  error: string | null;
+  onUpload: (files: File[]) => void;
+  onRemove: (id: string) => void;
+  onDismissError: () => void;
+}) {
   const [authOpen, setAuthOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [rejected, setRejected] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   function openPicker() {
@@ -36,28 +53,35 @@ export function LibraryColumn({ signedIn }: { signedIn: boolean }) {
   function onFiles(files: FileList | null) {
     if (!files || !signedIn) return;
 
-    const incoming = Array.from(files).map<LibraryDocument>((file) => ({
-      id: `local-${file.name}-${file.size}`,
-      filename: file.name,
-      sizeBytes: file.size,
-      pageCount: null,
-      status: "queued",
-      stageDetail: "Waiting for a worker",
-      error: null,
-      createdAt: new Date().toISOString(),
-      owned: true,
-    }));
+    const incoming = Array.from(files);
 
-    setDocuments((current) => [...incoming, ...current]);
+    // Rejected here rather than at the API: the same rules are enforced
+    // server-side, but telling someone their 40MB scan is too large while they
+    // are still looking at the file is better than after the upload finishes.
+    const tooBig = incoming.find((file) => file.size > MAX_UPLOAD_BYTES);
+    if (tooBig) {
+      setRejected(`${tooBig.name} is ${megabytes(tooBig.size)}. The limit is ${megabytes(MAX_UPLOAD_BYTES)}.`);
+      return;
+    }
+
+    const wrongType = incoming.find(
+      (file) =>
+        !SUPPORTED_UPLOAD_EXTENSIONS.some((extension) => file.name.toLowerCase().endsWith(extension)),
+    );
+    if (wrongType) {
+      setRejected(`${wrongType.name} is not a PDF, DOCX or PPTX.`);
+      return;
+    }
+
+    setRejected(null);
+    onUpload(incoming);
   }
 
   return (
     <aside className="flex w-full shrink-0 flex-col border-t border-line bg-surface lg:w-[320px] lg:border-t-0 lg:border-l">
       <div className="flex h-11 shrink-0 items-center px-5">
         <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-faint">Library</p>
-        <span className="ml-auto font-mono text-[10px] text-faint">
-          {documents.length} of 20
-        </span>
+        <span className="ml-auto font-mono text-[10px] text-faint">{documents.length} files</span>
       </div>
 
       <div className="px-4 pb-4">
@@ -65,9 +89,13 @@ export function LibraryColumn({ signedIn }: { signedIn: boolean }) {
           ref={inputRef}
           type="file"
           multiple
-          accept=".pdf,.docx,.pptx"
+          accept={SUPPORTED_UPLOAD_EXTENSIONS.join(",")}
           className="hidden"
-          onChange={(event) => onFiles(event.target.files)}
+          onChange={(event) => {
+            onFiles(event.target.files);
+            // Reset so re-picking the same file fires `change` again.
+            event.target.value = "";
+          }}
         />
 
         <div
@@ -103,6 +131,40 @@ export function LibraryColumn({ signedIn }: { signedIn: boolean }) {
           </p>
         </div>
 
+        {uploading.length > 0 ? (
+          <div className="mt-3 rounded-[8px] border border-line bg-sunk px-3 py-2.5">
+            <p className="flex items-center gap-2 text-[12px] text-ink-soft">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-faint" />
+              Uploading {uploading.length === 1 ? uploading[0] : `${uploading.length} files`}
+            </p>
+            {/* An honest "in progress" rather than a fabricated percentage: the
+                browser exposes no upload progress through fetch, and a bar that
+                guesses is worse than one that admits it does not know. */}
+          </div>
+        ) : null}
+
+        {rejected ? (
+          <p className="mt-3 rounded-[6px] bg-pale-red-bg px-3 py-2 text-[11px] leading-relaxed text-pale-red-ink">
+            {rejected}
+          </p>
+        ) : null}
+
+        {error ? (
+          <div className="mt-3 rounded-[6px] bg-pale-red-bg px-3 py-2 text-[11px] leading-relaxed text-pale-red-ink">
+            <p>{error}</p>
+            <button
+              type="button"
+              onClick={() => {
+                onDismissError();
+                setRejected(null);
+              }}
+              className="mt-1 underline underline-offset-4 opacity-75 hover:opacity-100"
+            >
+              Dismiss
+            </button>
+          </div>
+        ) : null}
+
         {!signedIn ? (
           <ButtonLink
             href="/login?mode=signup"
@@ -116,6 +178,14 @@ export function LibraryColumn({ signedIn }: { signedIn: boolean }) {
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto border-t border-line px-2.5 py-3">
+        {documents.length === 0 ? (
+          <p className="px-3 py-4 text-[12px] leading-relaxed text-faint">
+            {signedIn
+              ? "No documents yet. Upload a PDF, DOCX or PPTX to get started."
+              : "The sample library is empty."}
+          </p>
+        ) : null}
+
         {documents.map((document) => (
           <div
             key={document.id}
@@ -134,12 +204,9 @@ export function LibraryColumn({ signedIn }: { signedIn: boolean }) {
                 <button
                   type="button"
                   aria-label={`Delete ${document.filename}`}
-                  onClick={() =>
-                    setDocuments((current) =>
-                      current.filter((entry) => entry.id !== document.id),
-                    )
-                  }
-                  className="shrink-0 text-faint opacity-0 transition-opacity hover:text-pale-red-ink group-hover:opacity-100"
+                  disabled={deletingId === document.id}
+                  onClick={() => onRemove(document.id)}
+                  className="shrink-0 text-faint opacity-0 transition-opacity hover:text-pale-red-ink focus-visible:opacity-100 group-hover:opacity-100 disabled:opacity-40"
                 >
                   <Trash size={14} />
                 </button>

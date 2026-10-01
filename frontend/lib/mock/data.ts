@@ -7,6 +7,13 @@ function ago(hours: number): string {
   return new Date(Date.now() - hours * HOUR).toISOString();
 }
 
+/**
+ * The sample library, shown to visitors who have not signed in.
+ *
+ * These are deliberately fixed and deliberately fake. A signed-in user's board
+ * and library column read from the API instead, so nothing here can be mistaken
+ * for a real document or a real answer.
+ */
 export const DEMO_LIBRARY_ID = "demo-library";
 
 export const DEMO_DOCUMENTS: LibraryDocument[] = [
@@ -56,7 +63,7 @@ export const DEMO_DOCUMENTS: LibraryDocument[] = [
   },
 ];
 
-export const PIPELINE_DOCUMENTS: LibraryDocument[] = [
+export const DEMO_PIPELINE_DOCUMENTS: LibraryDocument[] = [
   ...DEMO_DOCUMENTS.slice(0, 2),
   {
     id: "doc-sicilian",
