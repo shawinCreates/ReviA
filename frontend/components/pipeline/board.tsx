@@ -3,21 +3,12 @@
 import Link from "next/link";
 import { useMemo } from "react";
 
-import { STAGES, STAGE_LABELS } from "@/lib/config";
+import { STAGES, STAGE_BLURBS, STAGE_LABELS } from "@/lib/config";
 import { DEMO_PIPELINE_DOCUMENTS, documentsByStage } from "@/lib/mock/data";
 import type { LibraryDocument } from "@/lib/types";
 import { useLibrary } from "@/lib/use-library";
 import { Alert, Check, FileText } from "@/components/icons";
 import { ButtonLink } from "@/components/ui";
-
-const BLURB = {
-  queued: "Accepted and waiting for a worker",
-  parsing: "Reading text and page structure",
-  chunking: "Slicing pages into retrievable chunks",
-  embedding: "Writing vectors and the search index",
-  ready: "Searchable, and answering questions",
-  failed: "Stopped, with the reason given",
-} as const;
 
 const IN_FLIGHT = new Set(["queued", "parsing", "chunking", "embedding"]);
 
@@ -84,7 +75,7 @@ export function PipelineBoard({
                     {entries.length}
                   </span>
                 </div>
-                <p className="mt-1.5 text-[11px] leading-relaxed text-faint">{BLURB[stage]}</p>
+                <p className="mt-1.5 text-[11px] leading-relaxed text-faint">{STAGE_BLURBS[stage]}</p>
               </div>
 
               <div className="flex-1 space-y-1.5 p-2">

@@ -11,7 +11,7 @@ const SIZES = {
 };
 
 const VARIANTS = {
-  solid: "bg-accent text-white hover:bg-ink",
+  solid: "bg-accent text-white hover:bg-ink/85",
   outline: "border border-line-strong bg-surface text-ink hover:border-ink",
   ghost: "text-muted hover:bg-sunk hover:text-ink",
   quiet: "bg-sunk text-ink hover:bg-line",

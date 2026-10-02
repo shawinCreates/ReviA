@@ -6,6 +6,7 @@ import { AuthModal } from "@/components/auth-modal";
 import { Plus, Send } from "@/components/icons";
 import { Badge, Button, SectionLabel } from "@/components/ui";
 import type { ChatSession, Message } from "@/lib/types";
+import { splitMarkers } from "@/lib/markers";
 
 export const ASK_REASON =
   "Sign in and you can ask your own documents questions, with every answer kept between visits.";
@@ -201,10 +202,16 @@ export function ChatColumn({
 }
 
 function MessageBlock({ message }: { message: Message }) {
+  const [openSource, setOpenSource] = useState<string | null>(null);
+
+  function toggleSource(label: string) {
+    setOpenSource((current) => (current === label ? null : label));
+  }
+
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
-        <p className="max-w-[52ch] rounded-none bg-ink px-4 py-2.5 text-[14px] leading-relaxed text-white">
+        <p className="max-w-[52ch] rounded-none bg-sunk px-4 py-2.5 text-[14px] leading-relaxed text-ink">
           {message.content}
         </p>
       </div>
@@ -215,7 +222,36 @@ function MessageBlock({ message }: { message: Message }) {
     <div>
       <div className="space-y-4 text-[14px] font-[family-name:var(--font-sans)] leading-relaxed text-ink-soft">
         {message.content.split("\n\n").map((paragraph, index) => (
-          <p key={index}>{paragraph}</p>
+          <p key={index} className="max-w-[68ch]">
+            {splitMarkers(paragraph).map((segment, segmentIndex) => {
+              if (segment.kind === "text") {
+                return <span key={`text-${segmentIndex}`}>{segment.value}</span>;
+              }
+              const label = segment.label;
+              const interactive = message.citations.some((citation) => citation.label === label);
+              return (
+                <sup key={`marker-${segmentIndex}`} className="mx-2">
+                  {interactive ? (
+                    <button
+                      type="button"
+                      aria-label={`Source ${label}`}
+                      onClick={() => {
+                        toggleSource(label);
+                        document
+                          .getElementById(`source-${message.id}-${label}`)
+                          ?.scrollIntoView({ block: "nearest", behavior: "auto" });
+                      }}
+                      className="border border-line bg-sunk px-1 py-px font-mono text-[11px] leading-none text-muted transition-colors hover:border-ink hover:text-ink motion-reduce:transition-none"
+                    >
+                      source
+                    </button>
+                  ) : (
+                    label
+                  )}
+                </sup>
+              );
+            })}
+          </p>
         ))}
       </div>
 
@@ -232,17 +268,25 @@ function MessageBlock({ message }: { message: Message }) {
       ) : null}
 
       {message.citations.length > 0 ? (
-        <div className="mt-5 flex flex-wrap gap-2">
+        <div className="mt-5 space-y-1">
           {message.citations.map((citation) => (
-            <div
-              key={citation.label}
-              className="max-w-[46ch] rounded-none border border-line bg-surface p-3"
-            >
-              <p className="font-mono text-[10px] uppercase tracking-[0.08em] text-accent">
-                {citation.label} &middot; {citation.filename} &middot;{" "}
-                {citation.page > 0 ? `p. ${citation.page}` : "no page"}
-              </p>
-              <p className="mt-1.5 text-[12px] leading-relaxed text-muted">{citation.snippet}</p>
+            <div key={citation.label}>
+              <button
+                type="button"
+                id={`source-${message.id}-${citation.label}`}
+                aria-expanded={openSource === citation.label}
+                onClick={() => toggleSource(citation.label)}
+                className="flex w-full items-baseline gap-2 text-left text-[13px] text-ink-soft"
+              >
+                <span className="font-mono">{citation.label}</span>
+                <span className="min-w-0 break-words">{citation.filename}</span>
+                <span className="shrink-0 text-muted">
+                  {citation.page > 0 ? `p. ${citation.page}` : "no page"}
+                </span>
+              </button>
+              {openSource === citation.label ? (
+                <p className="mt-1 text-[12px] leading-relaxed text-muted">{citation.snippet}</p>
+              ) : null}
             </div>
           ))}
         </div>

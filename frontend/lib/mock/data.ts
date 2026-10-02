@@ -19,7 +19,7 @@ export const DEMO_LIBRARY_ID = "demo-library";
 export const DEMO_DOCUMENTS: LibraryDocument[] = [
   {
     id: "doc-natlaw",
-    filename: "Constitutional Law — Week 4 Notes.pdf",
+    filename: "Constitutional Law - Week 4 Notes.pdf",
     sizeBytes: 2_411_724,
     pageCount: 24,
     status: "ready",
@@ -67,7 +67,7 @@ export const DEMO_PIPELINE_DOCUMENTS: LibraryDocument[] = [
   ...DEMO_DOCUMENTS.slice(0, 2),
   {
     id: "doc-sicilian",
-    filename: "Sicilian Gardens, 1780–1900.pdf",
+    filename: "Sicilian Gardens, 1780-1900.pdf",
     sizeBytes: 18_874_368,
     pageCount: null,
     status: "queued",
@@ -78,7 +78,7 @@ export const DEMO_PIPELINE_DOCUMENTS: LibraryDocument[] = [
   },
   {
     id: "doc-micro",
-    filename: "Microbiology Lab Report — Draft.docx",
+    filename: "Microbiology Lab Report - Draft.docx",
     sizeBytes: 96_256,
     pageCount: null,
     status: "parsing",
@@ -130,7 +130,7 @@ export const DEMO_SESSIONS: ChatSession[] = [
 ];
 
 const CITE = {
-  "doc-natlaw": "Constitutional Law — Week 4 Notes.pdf",
+  "doc-natlaw": "Constitutional Law - Week 4 Notes.pdf",
   "doc-thermo": "Thermodynamics Lecture 07.pptx",
   "doc-fieldwork": "Field Methods Handbook.pdf",
   "doc-genetics": "Genetics Problem Set 3.docx",
@@ -150,7 +150,7 @@ export const DEMO_MESSAGES: Message[] = [
     id: "m2",
     role: "assistant",
     content:
-      "Judicial review is the courts' power to examine whether a public body has acted lawfully, rationally, and fairly, and to remedy the failure. It is not an appeal against the decision itself — the court does not re-run the decision, it checks the process that produced it [S1].\n\nIt was established in the late 19th century, most often traced to Regina v. Burah (1876), which held that a public body was subject to the courts even when the Crown was involved [S1].",
+      "Judicial review is the courts' power to examine whether a public body has acted lawfully, rationally, and fairly, and to remedy the failure. It is not an appeal against the decision itself: the court does not re-run the decision, it checks the process that produced it [S1].\n\nIt was established in the late 19th century, most often traced to Regina v. Burah (1876), which held that a public body was subject to the courts even when the Crown was involved [S1].",
     citations: [
       {
         label: "S1",

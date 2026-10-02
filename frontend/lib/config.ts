@@ -51,3 +51,17 @@ export const STAGE_LABELS: Record<Stage, string> = {
   ready: "Ready",
   failed: "Failed",
 };
+
+/**
+ * One line per rail saying what the stage is doing. This lives here rather than
+ * beside the board because the marketing preview is a server component and
+ * importing it from the client board would drag the client boundary across.
+ */
+export const STAGE_BLURBS: Record<Stage, string> = {
+  queued: "Accepted and waiting for a worker",
+  parsing: "Reading text and page structure",
+  chunking: "Slicing pages into retrievable chunks",
+  embedding: "Writing vectors and the search index",
+  ready: "Searchable, and answering questions",
+  failed: "Stopped, with the reason given",
+};

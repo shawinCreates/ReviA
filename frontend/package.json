@@ -9,6 +9,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "check:mapping": "tsx scripts/check-mapping.mts",
+    "check:markers": "tsx scripts/check-markers.mts",
     "check:api": "tsx scripts/check-live-data.mts"
   },
   "dependencies": {

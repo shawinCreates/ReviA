@@ -127,7 +127,7 @@ export function LibraryColumn({
             {signedIn ? "Drop files or click to upload" : "Sign in to upload your own"}
           </p>
           <p className="mt-1 text-[11px] text-faint">
-            PDF, DOCX, PPTX &middot; up to {megabytes(MAX_UPLOAD_BYTES)}
+            PDF, DOCX, PPTX. Up to {megabytes(MAX_UPLOAD_BYTES)}.
           </p>
         </div>
 

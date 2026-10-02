@@ -11,9 +11,8 @@ import {
   Upload,
 } from "@/components/icons";
 import { Reveal } from "@/components/reveal";
-import { PipelineBoard } from "@/components/pipeline/board";
 import { SiteFooter, SiteHeader } from "@/components/chrome";
-import { Badge, ButtonLink, Card, Kbd, SectionLabel } from "@/components/ui";
+import { ButtonLink, Card, Kbd, SectionLabel } from "@/components/ui";
 
 const HERO_IMAGE = "https://picsum.photos/seed/revia-hero/1200/675";
 const NOTES_IMAGE = "https://picsum.photos/seed/revia-notes/1024/1280";
@@ -41,7 +40,7 @@ const FEATURES = [
   },
   {
     title: "Your files stay private",
-    body: "Objects are stored privately and reached through short-lived signed URLs. No one else can reach your library, and a citation link expires.",
+    body: "Files sit in a private bucket. The server reads them to build the index and never hands the browser an address for one, so a citation can point at text but never at your file.",
     span: "lg:col-span-2",
     surface: "accent",
   },
@@ -77,8 +76,7 @@ const STEPS = [
 ] as const;
 
 // Four items, because the grid below is two up: a fifth sat alone in the last
-// row. The per-library document count it used to carry is on the pricing card;
-// the per-file size limit is on /login and in the chat drop zone.
+// row. The per-file size limit is on /login and in the chat drop zone.
 const FAQ = [
   {
     q: "Does it use my course material to train anything?",
@@ -98,27 +96,6 @@ const FAQ = [
   },
 ] as const;
 
-const PLANS = [
-  {
-    name: "Student",
-    price: "Free",
-    cadence: "while the project is in beta",
-    body: "Everything you need to ask questions of a semester's reading.",
-    features: ["20 documents per library", "Unlimited questions", "Cited answers", "Pipeline visibility"],
-    cta: "Try it",
-    highlight: false,
-  },
-  {
-    name: "Reading group",
-    price: "£4",
-    cadence: "per person, per month, when it launches",
-    body: "Shared libraries for a seminar group, with separate accounts per person.",
-    features: ["Everything in Student", "Shared libraries", "Group folders", "Export with citations"],
-    cta: "Join the waitlist",
-    highlight: true,
-  },
-] as const;
-
 export default function Home() {
   return (
     <div className="min-h-dvh">
@@ -129,11 +106,6 @@ export default function Home() {
           <div className="warm-wash absolute inset-0" />
           <div className="hairline-grid absolute inset-0 opacity-[0.55]" />
           <div className="relative mx-auto max-w-6xl px-6 pt-12 pb-16 md:pt-20 md:pb-24">
-            <Reveal>
-              <p className="font-mono text-[11px] tracking-[0.16em] text-accent uppercase">
-                2026 &middot; beta
-              </p>
-            </Reveal>
             <Reveal index={1}>
               {/* Two lines at every width ≥ md: the steps are sized so the
                   tagline measures 1.6 lines of the available measure at md and
@@ -181,15 +153,12 @@ export default function Home() {
                 <div className="flex items-center gap-2.5 border-b border-line px-5 py-3.5 md:px-7">
                   <ReviaMark size={15} className="text-accent" />
                   <span className="font-mono text-[11px] tracking-[0.14em] text-faint uppercase">
-                    case file &middot; judicial-review
+                    sample library
                   </span>
                 </div>
                 <div className="grid gap-8 px-5 py-7 md:grid-cols-[minmax(0,1fr)_minmax(0,260px)] md:gap-12 md:px-7 md:py-9">
                   <div>
-                    <p className="font-mono text-[10px] tracking-[0.14em] text-faint uppercase">
-                      question
-                    </p>
-                    <p className="mt-3 max-w-[40ch] text-[19px] leading-snug text-ink md:text-[21px]">
+                    <p className="max-w-[40ch] text-[19px] leading-snug text-ink md:text-[21px]">
                       Does a minister exercising a statutory duty get the same review?
                     </p>
                     <p className="mt-6 max-w-[62ch] text-[14px] leading-relaxed text-ink-soft">
@@ -203,16 +172,18 @@ export default function Home() {
                   </div>
                   <div className="space-y-3 md:border-l md:border-line md:pl-8">
                     <div className="border border-line bg-surface p-4">
-                      <p className="font-mono text-[10px] tracking-[0.12em] text-accent uppercase">
-                        S1 &middot; p. 7
+                      <p className="flex gap-2 text-[10px] tracking-[0.12em] text-accent uppercase">
+                        <span className="font-mono">S1</span>
+                        <span className="font-mono">p. 7</span>
                       </p>
                       <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
                         Public bodies include ministers exercising statutory duties.
                       </p>
                     </div>
                     <div className="border border-line bg-surface p-4">
-                      <p className="font-mono text-[10px] tracking-[0.12em] text-accent uppercase">
-                        S2 &middot; p. 9
+                      <p className="flex gap-2 text-[10px] tracking-[0.12em] text-accent uppercase">
+                        <span className="font-mono">S2</span>
+                        <span className="font-mono">p. 9</span>
                       </p>
                       <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
                         Wider discretion narrows the court to a rationality review.
@@ -248,7 +219,7 @@ export default function Home() {
           <div className="mx-auto max-w-6xl px-6 py-16 md:py-24">
             <Reveal>
               <h2 className="max-w-[22ch] text-title">
-                Four steps, then it is just answering questions.
+                How a question becomes an answer.
               </h2>
             </Reveal>
             <ol className="mt-12 border-t border-line md:mt-14">
@@ -283,7 +254,7 @@ export default function Home() {
           <div className="mx-auto max-w-6xl px-6 py-16 md:py-24">
             <Reveal>
               <h2 className="max-w-[26ch] text-title">
-                Built around the failure modes of a chat tool that quotes itself.
+                Where a cited answer can still go wrong.
               </h2>
             </Reveal>
             <div className="mt-12 grid gap-4 md:mt-14 md:grid-cols-2 lg:grid-cols-3">
@@ -314,88 +285,6 @@ export default function Home() {
                   </div>
                 </Reveal>
               ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="border-b border-line">
-          <div className="mx-auto max-w-6xl px-6 py-16 md:py-24">
-            <Reveal>
-              <SectionLabel>Ingestion</SectionLabel>
-              <div className="mt-4 flex flex-wrap items-end justify-between gap-6">
-                <h2 className="max-w-[20ch] text-title">
-                  Watch a document move through the pipeline.
-                </h2>
-                <ButtonLink href="/pipeline" variant="outline">
-                  See the full board
-                  <ArrowRight />
-                </ButtonLink>
-              </div>
-              <p className="mt-5 max-w-[64ch] text-lede text-ink-soft">
-                Uploading six files at once is normal, not an edge case. Each one
-                reports its own stage and progress, and a failure tells you what
-                failed instead of retrying silently forever.
-              </p>
-            </Reveal>
-            <div className="mt-12 border-t border-line pt-10 md:mt-14">
-              <PipelineBoard />
-            </div>
-          </div>
-        </section>
-
-        <section id="pricing" className="scroll-mt-20 border-b border-line bg-surface">
-          <div className="mx-auto max-w-6xl px-6 py-16 md:py-24">
-            <div className="grid gap-10 md:grid-cols-[minmax(0,260px)_minmax(0,1fr)] md:gap-14">
-              <Reveal>
-                <h2 className="max-w-[14ch] text-title">Free while it is in beta.</h2>
-              </Reveal>
-              <div className="grid border-t border-line md:grid-cols-2">
-                {PLANS.map((plan, index) => (
-                  <Reveal
-                    key={plan.name}
-                    index={index}
-                    className={`py-9 md:px-8 ${index === 0 ? "md:pl-0" : "md:border-l md:pr-0"}`}
-                  >
-                    <div className="flex items-center justify-between gap-4">
-                      <p className={`text-[15px] ${plan.highlight ? "text-accent" : "text-ink"}`}>
-                        {plan.name}
-                      </p>
-                      {plan.highlight ? (
-                        <Badge tone="accent">Planned</Badge>
-                      ) : (
-                        <Badge>Beta</Badge>
-                      )}
-                    </div>
-                    <p className="mt-8 text-[44px] leading-none font-medium tracking-[-0.03em] text-ink">
-                      {plan.price}
-                    </p>
-                    <p className="mt-3 max-w-[30ch] text-[13px] text-muted">
-                      {plan.cadence}
-                    </p>
-                    <p className="mt-6 text-[14px] leading-relaxed text-ink-soft">
-                      {plan.body}
-                    </p>
-                    <ul className="mt-6 space-y-2.5">
-                      {plan.features.map((feature) => (
-                        <li
-                          key={feature}
-                          className="flex items-start gap-2.5 text-[13px] text-muted"
-                        >
-                          <Check size={15} className="mt-0.5 shrink-0 text-accent" />
-                          {feature}
-                        </li>
-                      ))}
-                    </ul>
-                    <ButtonLink
-                      href={plan.highlight ? "/login" : "/chat"}
-                      variant={plan.highlight ? "outline" : "solid"}
-                      className="mt-8"
-                    >
-                      {plan.cta}
-                    </ButtonLink>
-                  </Reveal>
-                ))}
-              </div>
             </div>
           </div>
         </section>

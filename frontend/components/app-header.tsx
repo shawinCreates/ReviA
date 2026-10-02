@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { createClient } from "@/lib/supabase/client";
-import { APP_NAME } from "@/lib/config";
 import { Wordmark } from "@/components/chrome";
 import { Button, ButtonLink } from "@/components/ui";
 
@@ -82,16 +81,5 @@ function AccountSlot() {
         Sign out
       </Button>
     </>
-  );
-}
-
-export function ChatTitleBar({ title }: { title: string }) {
-  return (
-    <div className="flex h-11 shrink-0 items-center gap-3 border-b border-line px-5">
-      <p className="truncate text-[13px] text-ink">{title}</p>
-      <p className="ml-auto shrink-0 font-mono text-[11px] text-faint">
-        {APP_NAME} &middot; sample library
-      </p>
-    </div>
   );
 }

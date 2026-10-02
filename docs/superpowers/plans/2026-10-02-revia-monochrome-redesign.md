@@ -440,14 +440,15 @@ outbound link on a marketing page.
 - [ ] **Step 3: Swap the landing page over and delete the section CTA**
 
 In `app/page.tsx`, change the import at line 14 from `PipelineBoard` to
-`PipelinePreview`, and change the render at line 341 to `<PipelinePreview />`,
-keeping the `<div className="mt-12 border-t border-line pt-10 md:mt-14">` wrapper
-it already sits in. Add no `Reveal` wrapper, because the board it replaces has
-none.
+`PipelinePreview`, and change the render `<PipelineBoard />` to
+`<PipelinePreview />`, keeping the `<div className="mt-12 border-t border-line
+pt-10 md:mt-14">` wrapper it already sits in. Add no `Reveal` wrapper, because
+the board it replaces has none.
 
-Delete the `ButtonLink href="/pipeline"` and its "See the full board" label at
-`app/page.tsx:329-332`. `/pipeline` stays reachable from the site header nav and
-the footer.
+Delete the `ButtonLink` whose `href` is `/pipeline` and whose label is
+`See the full board`. Locate it by those two strings, not by line number: the
+same dispatch makes both edits in this file, so deleting one shifts the other.
+`/pipeline` stays reachable from the site header nav and the footer.
 
 - [ ] **Step 4: Verify the build and confirm the section links nowhere**
 
@@ -566,25 +567,27 @@ These are exact replacements. Do not paraphrase them.
 
 - [ ] **Step 3: Cut the case-file labels and the two remaining section labels**
 
-At `app/page.tsx:207` and `:215`, the citation headers read `S1 · p. 7` and
-`S2 · p. 9`. Render each as a flex row holding two `font-mono` spans, label then
-page, separated by `gap` instead of the character.
+Locate each target by its current text, not by line number: Tasks 1 and 4 already
+rewrote parts of `app/page.tsx`, so its line numbers no longer match this plan.
 
-At `app/page.tsx:184`, replace `case file · judicial-review` with
-`sample library`. Keep the mono uppercase tracking. This is not decoration: it
-is the disclosure that the block above it is fixture content, and it is the
-reason it is acceptable for a card header to carry a small-caps mono label.
+The citation headers read `S1 · p. 7` and `S2 · p. 9`. Render each as a flex row
+holding two `font-mono` spans, label then page, separated by `gap` instead of the
+character.
 
-Delete the `question` label at `app/page.tsx:189` entirely. The block beneath it
-is obviously the question.
+Replace the string `case file · judicial-review` with `sample library`. Keep the
+mono uppercase tracking. This is not decoration: it is the disclosure that the
+block above it is fixture content, and it is the reason it is acceptable for a
+card header to carry a small-caps mono label.
 
-Delete the hero eyebrow `<p>` at `app/page.tsx:132-136`, which reads
-`2026 · beta`. It is a version label, and removing it leaves the hero with three
-text elements.
+Delete the `question` label element entirely. The block beneath it is obviously
+the question.
 
-Delete the `<SectionLabel>Ingestion</SectionLabel>` at `app/page.tsx:324`. The
-headline beneath it already says what the section is. `SectionLabel` stays
-imported, because `Why it holds up` at line 225 still uses it.
+Delete the hero eyebrow `<p>` which reads `2026 · beta`. It is a version label,
+and removing it leaves the hero with three text elements.
+
+Delete the `<SectionLabel>Ingestion</SectionLabel>` element. The headline beneath
+it already says what the section is. `SectionLabel` stays imported, because the
+`Why it holds up` section label still uses it.
 
 - [ ] **Step 4: Fix the remaining separator runs**
 

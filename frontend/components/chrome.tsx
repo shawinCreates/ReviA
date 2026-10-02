@@ -28,9 +28,6 @@ export function SiteHeader({ children }: { children?: ReactNode }) {
           <Link href="/#features" className="text-muted transition-colors hover:text-ink">
             Features
           </Link>
-          <Link href="/#pricing" className="text-muted transition-colors hover:text-ink">
-            Pricing
-          </Link>
           <Link href="/pipeline" className="text-muted transition-colors hover:text-ink">
             Pipeline
           </Link>
@@ -75,11 +72,6 @@ export function SiteFooter() {
               <li>
                 <Link href="/pipeline" className="transition-colors hover:text-ink">
                   Ingestion pipeline
-                </Link>
-              </li>
-              <li>
-                <Link href="/#pricing" className="transition-colors hover:text-ink">
-                  Pricing
                 </Link>
               </li>
             </ul>

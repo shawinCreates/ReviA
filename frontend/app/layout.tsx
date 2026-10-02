@@ -25,8 +25,8 @@ const jetbrains = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: `${APP_NAME} — ${APP_TAGLINE}`,
-    template: `%s — ${APP_NAME}`,
+    default: `${APP_NAME}: ${APP_TAGLINE}`,
+    template: `%s | ${APP_NAME}`,
   },
   description:
     "Upload your lecture slides, papers and notes. Ask a question and get an answer built only from what you uploaded, with the page cited for every claim.",

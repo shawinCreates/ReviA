@@ -22,7 +22,8 @@ export default async function PipelinePage() {
           <div className="flex flex-wrap items-end justify-between gap-6">
             <div>
               <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-faint">
-                ingestion &middot; {STAGES.length} stages
+                <span className="block">Ingestion</span>
+                <span className="block">{STAGES.length} stages</span>
               </p>
               <h1 className="mt-4 max-w-[20ch] font-[family-name:var(--font-display)] text-[1.75rem] leading-[1.12] tracking-[-0.02em] md:text-[2.25rem]">
                 Every document, and the stage it is in.
