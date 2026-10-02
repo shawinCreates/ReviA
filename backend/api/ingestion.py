@@ -19,9 +19,11 @@ embeddings and would be retrieved alongside the new ones.
 from __future__ import annotations
 
 import logging
+from contextlib import contextmanager
 from datetime import timedelta
 
-from django.db import transaction
+from django.conf import settings
+from django.db import connections, transaction
 from django.utils import timezone
 
 from api import chunking, library_service, parsing, storage
@@ -39,6 +41,54 @@ WRITE_BATCH_SIZE = 100
 #: How long to wait before retrying a document whose embedding call was
 #: rate-limited. The document is put back in `queued` and picked up again.
 RETRY_DELAY_SECONDS = 30
+
+#: Arbitrary but stable key for the cross-process ingestion lock. It has to be
+#: one fixed number: a worker that picked a different key would happily run at
+#: the same time as every other one.
+WORKER_LOCK_KEY = 0x526576694121  # b"ReviA!"
+
+
+@contextmanager
+def worker_lock():
+    """Hold the cross-process ingestion lock for the duration of one pass.
+
+    Yields True if the lock was taken, False if another worker already holds it.
+    The caller is expected to do nothing in that case: someone is already doing
+    the work, and two workers inside `ingest_pending` at once would process the
+    same document twice, because `advance_stage` writes the stage from a stale
+    in-memory copy rather than a locked read.
+
+    A Postgres advisory lock is the right primitive here specifically because it
+    is scoped to the session. A worker killed mid-document -- a Ctrl-C, an OOM, a
+    Django autoreload on save -- releases it when the connection dies, so nothing
+    is left behind for the next worker to trip over. A row-level "who owns this"
+    flag would need its own staleness reaper, which is the failure mode this
+    avoids.
+
+    The lock is taken per pass rather than held for a worker's lifetime. Holding
+    it across an idle sleep would pin a database connection open for as long as
+    the process lives, and a session-scoped lock cannot survive the connection
+    being recycled underneath it anyway.
+    """
+    conn = connections["default"]
+
+    # SQLite, which is what the test suite runs on, has no advisory locks. The
+    # worker never starts there, so this only keeps `run_pipeline` from crashing
+    # against a test database.
+    if conn.vendor != "postgresql":
+        yield True
+        return
+
+    with conn.cursor() as cursor:
+        cursor.execute("SELECT pg_try_advisory_lock(%s)", [WORKER_LOCK_KEY])
+        acquired = bool(cursor.fetchone()[0])
+
+    try:
+        yield acquired
+    finally:
+        if acquired:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_unlock(%s)", [WORKER_LOCK_KEY])
 
 
 class IngestionError(Exception):
@@ -241,10 +291,20 @@ def ingest_pending(limit: int = 10) -> dict[str, int]:
     }
 
 
-#: How long a document may sit mid-pipeline before it is treated as abandoned.
-#: Long enough that a slow embedding call is not interrupted, short enough that
-#: a document does not sit in `parsing` for a week.
+#: Fallback when the setting is absent. Long enough that a slow embedding call is
+#: not interrupted, short enough that a document does not sit in `parsing` for a
+#: week.
 STALLED_AFTER_SECONDS = 15 * 60
+
+
+def stalled_after_seconds() -> int:
+    """How long a document may sit mid-pipeline before it counts as abandoned.
+
+    Read from settings on every call rather than captured at import, because the
+    value depends on DEBUG and this module is imported before settings are
+    necessarily configured.
+    """
+    return int(getattr(settings, "PIPELINE_STALLED_SECONDS", STALLED_AFTER_SECONDS))
 
 
 def _reap_stalled() -> int:
@@ -258,9 +318,12 @@ def _reap_stalled() -> int:
 
     The threshold is measured from `updated_at`, which `advance_stage` refreshes,
     so a document genuinely still being worked on is not reset out from under the
-    worker handling it.
+    worker handling it. It must therefore stay comfortably above the slowest
+    single stage -- a cold embedding call downloads the model on first use, and
+    reaping a document that is still legitimately embedding would hand it to a
+    second worker while the first is still holding it.
     """
-    cutoff = timezone.now() - timedelta(seconds=STALLED_AFTER_SECONDS)
+    cutoff = timezone.now() - timedelta(seconds=stalled_after_seconds())
     stalled = Document.objects.filter(
         stage__in=[DocumentStage.PARSING, DocumentStage.CHUNKING, DocumentStage.EMBEDDING],
         updated_at__lt=cutoff,

@@ -1,42 +1,48 @@
 @import "tailwindcss";
 
 @theme {
-  --color-canvas: #fbfbfa;
+  --color-paper: #fcfcfa;
   --color-surface: #ffffff;
-  --color-sunk: #f7f6f3;
-  --color-ink: #111111;
-  --color-ink-soft: #2f3437;
-  --color-muted: #787774;
-  --color-faint: #a3a29d;
-  --color-line: #eaeaea;
-  --color-line-strong: #dcdbd7;
+  --color-sunk: #f4f3ef;
+  --color-ink: #121212;
+  --color-ink-soft: #2c2c2a;
+  /* `muted` and `faint` carry 10-13px metadata, so they are held to 4.5:1 like
+     body text rather than the 3:1 large-text allowance. Ratios against the three
+     surfaces they sit on: muted 6.44 / 6.61 / 5.96, faint 4.91 / 5.05 / 4.54
+     (paper / surface / sunk). `#9d9c96` was 2.68:1 on paper and is what the
+     `faint` metadata was failing at. `faint` is the lightest warm grey that still
+     clears `sunk`, which is the darkest background any `faint` text lands on
+     (the chat drop zone). Darkening `muted` as well is what keeps the two steps
+     apart: lifting `faint` alone would have left it within 0.2 of `muted`. */
+  --color-muted: #5d5d59;
+  --color-faint: #6f6f6b;
+  --color-line: #e6e5df;
+  --color-line-strong: #d4d3cc;
 
-  --color-pale-red-bg: #fdebec;
-  --color-pale-red-ink: #9f2f2d;
-  --color-pale-blue-bg: #e1f3fe;
-  --color-pale-blue-ink: #1f6c9f;
-  --color-pale-green-bg: #edf3ec;
-  --color-pale-green-ink: #346538;
-  --color-pale-yellow-bg: #fbf3db;
-  --color-pale-yellow-ink: #956400;
+  --color-accent: #4b2e83;
+  --color-accent-soft: #efe9f6;
+  --color-success: #2f6b43;
+  --color-danger: #9f2f2d;
+  --color-warning: #8a5a00;
 
-  --font-sans: var(--font-grotesk), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-mono-face), ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-display: var(--font-orbitron), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  --text-display: 3.5rem;
-  --text-display--line-height: 1.02;
-  --text-display--letter-spacing: -0.035em;
-  --text-title: 2.125rem;
+  --text-display: 3.25rem;
+  --text-display--line-height: 1.04;
+  --text-display--letter-spacing: -0.02em;
+  --text-title: 2rem;
   --text-title--line-height: 1.12;
-  --text-title--letter-spacing: -0.025em;
-  --text-lede: 1.3125rem;
-  --text-lede--line-height: 1.55;
+  --text-title--letter-spacing: -0.01em;
+  --text-lede: 1.25rem;
+  --text-lede--line-height: 1.6;
 
-  --radius-card: 10px;
-  --radius-control: 5px;
+  --radius-card: 0px;
+  --radius-control: 0px;
 
-  --shadow-whisper: 0 2px 8px rgb(0 0 0 / 0.04);
-  --shadow-lift: 0 8px 28px rgb(0 0 0 / 0.05);
+  --shadow-whisper: 0 2px 10px rgb(75 46 131 / 0.05);
+  --shadow-lift: 0 10px 30px rgb(75 46 131 / 0.07);
 
   --ease-out-quiet: cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -52,7 +58,7 @@
   }
 
   body {
-    background-color: var(--color-canvas);
+    background-color: var(--color-paper);
     color: var(--color-ink);
     font-family: var(--font-sans);
     line-height: 1.6;
@@ -61,12 +67,12 @@
   }
 
   ::selection {
-    background: var(--color-pale-yellow-bg);
-    color: var(--color-pale-yellow-ink);
+    background: var(--color-accent-soft);
+    color: var(--color-accent);
   }
 
   :focus-visible {
-    outline: 2px solid var(--color-ink);
+    outline: 2px solid var(--color-accent);
     outline-offset: 2px;
   }
 
@@ -109,4 +115,43 @@
     rgb(17 17 17 / 0.035),
     transparent 70%
   );
+}
+
+/* `prefers-reduced-motion` is the only place these are neutralised, so this is
+   deliberately the one block in the file with no layer: Tailwind emits
+   `@utility` output into `@layer utilities`, and unlayered declarations beat
+   layered ones, which is what lets this override `reveal` without
+   `!important` on the colour tokens. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  /* `.reveal` ships at opacity 0 and only clears when the intersection observer
+     adds `.reveal-in`, so pinning it open here is what stops a reduced-motion
+     visitor reading a page that is blank until JS runs. Content is simply there
+     from the first paint, which is the point of the preference. The 600ms
+     transition and the per-index stagger need no rule of their own: the
+     duration and delay below already flatten both to nothing. */
+  .reveal,
+  .reveal-in {
+    opacity: 1;
+    transform: none;
+  }
+
+  /* Everything else that moves: hover and focus colour transitions, the press
+     scale on buttons, and the two `animate-pulse` loading dots. None of them
+     carry information that the end state lacks, so they snap to it. `0.01ms`
+     rather than `0s` so a transition still completes and lands on its end value
+     instead of being cut off mid-flight, and `animation-iteration-count: 1`
+     stops the pulse looping. `!important` is the price of overriding a utility
+     class from here. */
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+  }
 }

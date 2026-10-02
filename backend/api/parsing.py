@@ -205,14 +205,22 @@ _READERS = {
 def _normalise(text: str) -> str:
     """Tidy extracted text without changing what it says.
 
-    Two things only. Runs of spaces and tabs become single spaces, because
-    extraction leaves one space per column gap and the raw text is close to
-    unreadable. And blank lines are collapsed to a single one, so paragraph
-    structure survives without a wall of whitespace from layout.
+    Three things. NUL bytes are removed, because a PDF whose font carries a
+    broken encoding map can yield them and Postgres refuses to store a NUL in a
+    `text` column — one stray byte in one page otherwise fails the whole document
+    with an error that says nothing about PDF extraction. Runs of spaces and tabs
+    become single spaces, because extraction leaves one space per column gap and
+    the raw text is close to unreadable. And blank lines are collapsed to a
+    single one, so paragraph structure survives without a wall of whitespace from
+    layout.
 
     Newlines are kept: a list of extracted lines is not the same as prose, and
     the chunker works better with the line structure intact.
     """
+    # Before the line split, because `str.split()` treats whitespace specially
+    # and a NUL is not whitespace, so it would ride through untouched.
+    text = text.replace("\x00", "")
+
     lines = []
     for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
         # `split()` rather than a regex, so a line that is only spaces becomes

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { AuthModal } from "@/components/auth-modal";
 import { Plus, Send } from "@/components/icons";
-import { Button } from "@/components/ui";
+import { Badge, Button, SectionLabel } from "@/components/ui";
 import type { ChatSession, Message } from "@/lib/types";
 
 export const ASK_REASON =
@@ -85,14 +85,10 @@ export function ChatColumn({
   const blocked = signedIn && readyCount === 0;
 
   return (
-    <section className="flex min-w-0 flex-1 flex-col bg-canvas">
+    <section className="flex min-w-0 flex-1 flex-col bg-paper">
       <header className="flex h-11 shrink-0 items-center gap-3 border-b border-line px-5">
         <p className="truncate text-[13px] text-ink">{title}</p>
-        {!signedIn ? (
-          <span className="shrink-0 rounded-full bg-pale-yellow-bg px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.06em] text-pale-yellow-ink">
-            Sample library
-          </span>
-        ) : null}
+        {!signedIn ? <Badge tone="warning">Sample library</Badge> : null}
         <span className="ml-auto shrink-0 font-mono text-[11px] text-faint">
           {sourceCount > 0 ? `${sourceCount} ${sourceCount === 1 ? "source" : "sources"}` : ""}
         </span>
@@ -112,41 +108,42 @@ export function ChatColumn({
           ) : null}
 
           {error ? (
-            <div className="rounded-[8px] border border-pale-red-ink/30 bg-pale-red-bg px-4 py-3">
-              <p className="text-[13px] leading-relaxed text-pale-red-ink">{error}</p>
+            <div className="rounded-none border border-danger/40 bg-danger/10 px-4 py-3">
+              <p className="text-[13px] leading-relaxed text-danger">{error}</p>
               <div className="mt-2.5 flex gap-3">
+                {/* No `opacity-70` here: dimming `text-danger` on the
+                    `bg-danger/10` block lands at 3.42:1 for 12px text. The
+                    underline already carries the affordance. */}
                 <button
                   type="button"
                   onClick={onDismissError}
-                  className="text-[12px] text-pale-red-ink underline underline-offset-4 opacity-70 hover:opacity-100"
+                  className="text-[12px] text-danger underline underline-offset-4"
                 >
                   Dismiss
                 </button>
-                {signedIn ? (
-                  <button
-                    type="button"
-                    onClick={() => onAsk(draft.trim() || "Try that again")}
-                    className="text-[12px] text-pale-red-ink underline underline-offset-4 hover:font-medium"
-                  >
-                    Ask again
-                  </button>
-                ) : null}
+                <button
+                  type="button"
+                  onClick={() => onAsk(draft.trim() || "Try that again")}
+                  className="text-[12px] text-danger underline underline-offset-4"
+                >
+                  Ask again
+                </button>
               </div>
             </div>
           ) : null}
 
           {blocked && messages.length === 0 && !error ? (
-            <div className="rounded-[8px] border border-line bg-surface px-4 py-3">
-              <p className="text-[13px] leading-relaxed text-muted">
-                Nothing is searchable yet. Upload a document on the right, wait for it
-                to reach <span className="text-ink">Ready</span>, then ask.
+            <div className="rounded-none border border-warning/40 bg-warning/10 px-4 py-3">
+              <p className="text-[13px] leading-relaxed text-warning">
+                Nothing is searchable yet. Upload a document, wait for it to reach{" "}
+                <span className="text-ink">Ready</span>, then ask.
               </p>
             </div>
           ) : null}
         </div>
       </div>
 
-      <div className="shrink-0 border-t border-line bg-canvas px-5 py-4">
+      <div className="shrink-0 border-t border-line bg-paper px-5 py-4">
         <div className="mx-auto max-w-[68ch]">
           {!signedIn ? (
             <div className="mb-3 flex flex-wrap items-center gap-2 text-[12px] text-faint">
@@ -184,7 +181,7 @@ export function ChatColumn({
                   ? "Ask something your documents answer"
                   : "Sign in to ask your own documents"
               }
-              className="max-h-40 min-h-11 flex-1 resize-none rounded-[6px] border border-line bg-surface px-3.5 py-3 text-[14px] leading-relaxed text-ink outline-none transition-colors placeholder:text-faint focus:border-ink"
+              className="max-h-40 min-h-11 flex-1 resize-none rounded-none border border-line bg-surface px-3.5 py-3 text-[14px] leading-relaxed text-ink transition-colors placeholder:text-faint focus:border-accent"
             />
             <Button type="submit" disabled={!draft.trim() || pending} aria-label="Send">
               <Send size={15} />
@@ -207,7 +204,7 @@ function MessageBlock({ message }: { message: Message }) {
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
-        <p className="max-w-[52ch] rounded-[8px] bg-ink px-4 py-2.5 text-[14px] leading-relaxed text-white">
+        <p className="max-w-[52ch] rounded-none bg-ink px-4 py-2.5 text-[14px] leading-relaxed text-white">
           {message.content}
         </p>
       </div>
@@ -216,7 +213,7 @@ function MessageBlock({ message }: { message: Message }) {
 
   return (
     <div>
-      <div className="space-y-4 text-[14px] leading-[1.7] text-ink-soft">
+      <div className="space-y-4 text-[14px] font-[family-name:var(--font-sans)] leading-relaxed text-ink-soft">
         {message.content.split("\n\n").map((paragraph, index) => (
           <p key={index}>{paragraph}</p>
         ))}
@@ -229,7 +226,7 @@ function MessageBlock({ message }: { message: Message }) {
       ) : null}
 
       {message.uncited ? (
-        <p className="mt-3 text-[12px] text-pale-yellow-ink">
+        <p className="mt-3 text-[12px] text-warning">
           The answer came back without citing a source, so treat it as unverified.
         </p>
       ) : null}
@@ -239,9 +236,9 @@ function MessageBlock({ message }: { message: Message }) {
           {message.citations.map((citation) => (
             <div
               key={citation.label}
-              className="max-w-[46ch] rounded-[8px] border border-line bg-surface p-3"
+              className="max-w-[46ch] rounded-none border border-line bg-surface p-3"
             >
-              <p className="font-mono text-[10px] uppercase tracking-[0.08em] text-pale-blue-ink">
+              <p className="font-mono text-[10px] uppercase tracking-[0.08em] text-accent">
                 {citation.label} &middot; {citation.filename} &middot;{" "}
                 {citation.page > 0 ? `p. ${citation.page}` : "no page"}
               </p>
@@ -270,7 +267,7 @@ export function HistoryColumn({
   return (
     <aside className="hidden w-[248px] shrink-0 flex-col border-r border-line bg-surface lg:flex">
       <div className="flex h-11 shrink-0 items-center px-5">
-        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-faint">History</p>
+        <SectionLabel>Contents</SectionLabel>
       </div>
 
       <div className="flex-1 overflow-y-auto px-2.5 pb-4">
@@ -281,8 +278,8 @@ export function HistoryColumn({
               key={session.id}
               type="button"
               onClick={() => onSelect(session.id)}
-              className={`mb-0.5 w-full rounded-[6px] px-3 py-2.5 text-left transition-colors ${
-                active ? "bg-sunk" : "hover:bg-sunk/60"
+              className={`mb-0.5 w-full rounded-none border border-transparent px-3 py-2.5 text-left transition-colors ${
+                active ? "border-l-accent bg-sunk" : "hover:bg-sunk/60"
               }`}
             >
               <span
@@ -309,7 +306,7 @@ export function HistoryColumn({
           <button
             type="button"
             onClick={onNew}
-            className="flex w-full items-center justify-center gap-2 rounded-[6px] border border-line px-3 py-2 text-[13px] text-ink transition-colors hover:border-line-strong hover:bg-sunk"
+            className="flex w-full items-center justify-center gap-2 rounded-none border border-line px-3 py-2 text-[13px] text-ink transition-colors hover:border-line-strong hover:bg-sunk"
           >
             <Plus size={14} />
             New conversation

@@ -14,11 +14,35 @@ export function Reveal({
   className?: string;
 }) {
   const ref = useRef<HTMLElement | null>(null);
-  const [shown, setShown] = useState(() => typeof IntersectionObserver === "undefined");
+
+  // Starts false on both sides, deliberately. The first version read a browser
+  // API to decide this: `typeof IntersectionObserver === "undefined"`, which is
+  // true on the server and false in a browser, so the server rendered
+  // `reveal reveal-in` and the client's first render expected `reveal`. React
+  // reported a hydration mismatch on every load and refused to patch the class,
+  // which left above-the-fold content visible on arrival and then hidden for
+  // the frame before the observer revealed it again.
+  //
+  // The no-observer case is handled in the effect instead, where a value that
+  // can only be known in the browser belongs. `app/layout.tsx` restores the
+  // content for JS-disabled visitors with a `<noscript>` override, since the
+  // server now ships this hidden.
+  const [shown, setShown] = useState(false);
 
   useEffect(() => {
     const node = ref.current;
     if (!node || shown) return;
+
+    if (typeof IntersectionObserver === "undefined") {
+      // Nothing will ever intersect, so this element would sit at opacity 0
+      // forever and take the page's content with it. Reveal on the next tick
+      // rather than synchronously: `react-hooks/set-state-in-effect` is right
+      // that a bare setState here is the shape of the derived-state antipattern,
+      // and deferring it keeps this an external-system notification (the DOM
+      // cannot tell us anything) instead of a value derived from props.
+      const timer = setTimeout(() => setShown(true), 0);
+      return () => clearTimeout(timer);
+    }
 
     const observer = new IntersectionObserver(
       (entries) => {

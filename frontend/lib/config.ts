@@ -1,4 +1,4 @@
-export const APP_NAME = "EndNote";
+export const APP_NAME = "ReviA";
 
 export const APP_TAGLINE = "Answers from your own course material, cited to the page.";
 

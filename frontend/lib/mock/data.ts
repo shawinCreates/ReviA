@@ -34,7 +34,7 @@ export const DEMO_DOCUMENTS: LibraryDocument[] = [
     sizeBytes: 8_930_112,
     pageCount: 31,
     status: "ready",
-    stageDetail: "31 slides, 48 chunks",
+    stageDetail: "31 pages, 48 chunks",
     error: null,
     createdAt: ago(50),
     owned: false,

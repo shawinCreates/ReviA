@@ -3,32 +3,35 @@ import type { ReactNode } from "react";
 
 import { APP_NAME } from "@/lib/config";
 import { ButtonLink } from "@/components/ui";
+import { ReviaMark } from "@/components/icons";
 
 export function Wordmark({ href = "/" }: { href?: string }) {
   return (
-    <Link href={href} className="group inline-flex items-baseline gap-1.5">
-      <span className="text-[19px] font-medium tracking-[-0.02em] text-ink">{APP_NAME}</span>
-      <span className="h-1 w-1 translate-y-[-3px] rounded-full bg-ink transition-transform duration-200 group-hover:scale-150" />
+    <Link href={href} className="group inline-flex items-center gap-2">
+      <ReviaMark size={20} className="text-ink" />
+      <span className="font-[family-name:var(--font-display)] text-[19px] uppercase tracking-[0.02em] text-ink">
+        {APP_NAME}
+      </span>
     </Link>
   );
 }
 
 export function SiteHeader({ children }: { children?: ReactNode }) {
   return (
-    <header className="sticky top-0 z-30 border-b border-line bg-canvas/85 backdrop-blur-md">
+    <header className="sticky top-0 z-30 border-b border-line bg-paper/85 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-6xl items-center gap-8 px-6">
         <Wordmark />
         <nav className="hidden items-center gap-7 text-[13px] text-muted md:flex">
-          <Link href="/#how" className="transition-colors hover:text-ink">
+          <Link href="/#how" className="text-muted transition-colors hover:text-ink">
             How it works
           </Link>
-          <Link href="/#features" className="transition-colors hover:text-ink">
+          <Link href="/#features" className="text-muted transition-colors hover:text-ink">
             Features
           </Link>
-          <Link href="/#pricing" className="transition-colors hover:text-ink">
+          <Link href="/#pricing" className="text-muted transition-colors hover:text-ink">
             Pricing
           </Link>
-          <Link href="/pipeline" className="transition-colors hover:text-ink">
+          <Link href="/pipeline" className="text-muted transition-colors hover:text-ink">
             Pipeline
           </Link>
         </nav>
@@ -97,9 +100,6 @@ export function SiteFooter() {
             </ul>
           </div>
         </div>
-        <p className="mt-12 border-t border-line pt-6 text-[12px] text-faint">
-          Unrelated to EndNote from Clarivate. A student-built tool, not affiliated.
-        </p>
       </div>
     </footer>
   );

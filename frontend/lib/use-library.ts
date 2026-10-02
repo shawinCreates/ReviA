@@ -99,7 +99,19 @@ export function useLibrary({ signedIn, initial, fallback, libraryId }: Options) 
       for (const file of files) {
         try {
           const created = await uploadDocument(file, libraryId ?? undefined);
-          setDocuments((current) => [created, ...current]);
+          // An upsert, not a blind prepend. The poller runs every 3s while
+          // anything is in flight, and it can land in the gap between the server
+          // committing this document and this response arriving — in which case
+          // the list it fetched already contains `created`. Prepending
+          // unconditionally then puts one id in the array twice, which React
+          // reports as two children sharing a key, and which makes the library
+          // column and the pipeline board each render and count the document
+          // twice. Filtering first makes the insert idempotent whichever of the
+          // two responses lands first.
+          setDocuments((current) => [
+            created,
+            ...current.filter((entry) => entry.id !== created.id),
+          ]);
         } catch (cause) {
           const failure = cause as ApiError;
           setError(

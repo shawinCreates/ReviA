@@ -15,10 +15,9 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from django.middleware.csrf import CsrfViewMiddleware
 from rest_framework import status
 from rest_framework.authentication import BaseAuthentication
-from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 from rest_framework.request import Request
 
 from api.supabase_auth import TokenVerificationError, verify_access_token
@@ -71,6 +70,9 @@ class CookieSessionAuthentication(BaseAuthentication):
         # the session cookie with nothing else proving the user meant to send
         # it, which is exactly the shape a cross-site request forgery takes.
         #
+        # `enforce_csrf` decides that, by origin rather than by token: see the
+        # trade recorded there before adding a token back.
+        #
         # Enforced only for unsafe methods: a GET cannot change anything, and
         # requiring a token on it would break the frontend's plain fetches.
         if request.method in _UNSAFE_METHODS:
@@ -107,29 +109,27 @@ class CookieSessionAuthentication(BaseAuthentication):
     def enforce_csrf(self, request: Request) -> None:
         """Reject a state-changing request that did not come from our frontend.
 
-        **The origin check below is what actually protects this endpoint.** The
-        token check is run first and will catch a client that sends a *wrong*
-        token, but it cannot catch a client that sends none: with
-        `CSRF_COOKIE_NAME` set to an empty string there is no cookie to compare
-        against, and Django's masked-token comparison treats two empty strings as
-        equal. So a request with no token at all passes the token check and is
-        judged entirely by its `Origin`/`Referer`.
+        This is an `Origin`/`Referer` check and nothing else.
 
-        That is a deliberate trade rather than an oversight. The browser holds
-        the Supabase session cookie and the service writes no CSRF cookie of its
-        own, so there is nothing for a double-submit pattern to work with. A
-        cross-origin state-changing request, which is the attack this guards
-        against, cannot forge `Origin` — browsers set it and forbid scripts from
-        writing it. Requiring a token instead would mean inventing a cookie for
-        one endpoint, and a frontend that has to fetch it before every write.
+        Django's own token check used to run here first, and it could never
+        pass. `CsrfViewMiddleware.process_view` does not short-circuit on a
+        verified origin: it rejects an *untrusted* origin early, then falls
+        through to `_check_token`, which insists on a CSRF cookie. This service
+        writes none (`CSRF_COOKIE_NAME` is the empty string, so there is no
+        cookie for the frontend to echo), so every unsafe method was refused
+        with "CSRF cookie not set" — including this frontend's own uploads,
+        questions and deletes. The double-submit pattern needs a cookie to
+        work with; inventing one for a single endpoint, and making the
+        frontend fetch it before every write, buys nothing over the origin
+        check that already exists below.
+
+        Origin on its own is sufficient for the attack this guards against. A
+        browser sets `Origin` on every cross-origin non-GET request and forbids
+        scripts from writing it, so a forged cross-origin write cannot present
+        an allowed origin — it arrives as the attacker's own. `Referer` covers
+        the browsers that omit `Origin`, and a request carrying neither is not
+        from a browser, where an attacker has no cookie to ride anyway.
         """
-        from rest_framework.exceptions import PermissionDenied
-
-        reason = _CsrfCheck(lambda req: None).process_view(request, None, (), {})
-        if reason is not None:
-            logger.info("Rejected a state-changing request: CSRF check failed")
-            raise PermissionDenied("CSRF verification failed.")
-
         if not _origin_is_trusted(request):
             logger.warning(
                 "Rejected a state-changing request from untrusted origin %r",
@@ -138,14 +138,7 @@ class CookieSessionAuthentication(BaseAuthentication):
             raise PermissionDenied("Request origin is not allowed.")
 
 
-class _CsrfCheck(CsrfViewMiddleware):
-    """Runs Django's CSRF check and reports the reason instead of returning 403."""
-
-    def _reject(self, request: Request, reason: str) -> str:
-        return reason
-
-
-#: Methods that can change state, and so need CSRF protection.
+#: Methods that can change state, and so need the origin check above.
 _UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 

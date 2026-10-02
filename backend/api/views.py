@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 
+from django.conf import settings
 from django.db import connection
 from django.db.models import Count
 from rest_framework import status
@@ -19,7 +20,7 @@ from rest_framework.views import APIView
 
 from api import access, chat, library_service, storage, uploads
 from api.auth import SupabasePrincipal
-from api.models import Library
+from api.models import Document, DocumentStage, Library
 from api.profiles import get_or_create_profile
 from api.serializers import (
     AskQuestionSerializer,
@@ -72,7 +73,53 @@ class HealthView(APIView):
         if database_error:
             body["database_error"] = database_error
 
+        if database_ok:
+            pipeline = _pipeline_summary()
+            if pipeline is not None:
+                body["pipeline"] = pipeline
+
         return Response(body, status=status.HTTP_200_OK)
+
+
+def _pipeline_summary() -> dict | None:
+    """Per-stage document counts, or None where they are not reported.
+
+    The reason this matters: an upload only creates a queued row, so a worker
+    that is not running leaves documents at "queued" indefinitely while the API
+    still reports itself healthy. Every other signal here says the process is
+    fine; only the queue size says whether ingestion is actually happening.
+
+    DEBUG-gated because this view is unauthenticated, and document counts are
+    not something to publish to whoever asks. The production answer to "is
+    ingestion working" is a metric on the queue depth, not a public endpoint.
+    """
+    if not settings.DEBUG:
+        return None
+
+    try:
+        counts = {
+            row["stage"]: row["total"]
+            for row in Document.objects.values("stage").annotate(total=Count("id"))
+        }
+    except Exception as exc:
+        logger.warning("Could not summarise the ingestion pipeline: %s", exc)
+        return None
+
+    stages = {stage.value: counts.get(stage.value, 0) for stage in DocumentStage}
+    return {
+        "stages": stages,
+        "queued": stages[DocumentStage.QUEUED.value],
+        # Anything mid-pipeline, i.e. claimed but not finished. Non-zero with
+        # nothing moving is the signature of a stalled document.
+        "in_progress": sum(
+            stages[stage.value]
+            for stage in (
+                DocumentStage.PARSING,
+                DocumentStage.CHUNKING,
+                DocumentStage.EMBEDDING,
+            )
+        ),
+    }
 
 
 class MeView(APIView):

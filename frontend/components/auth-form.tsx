@@ -88,20 +88,20 @@ export function AuthForm({
 
       <div className="space-y-4">
         <label className="block">
-          <span className="text-[12px] text-muted">Email</span>
+          <span className="text-[12px] text-ink-soft">Email</span>
           <input
             type="email"
             required
             autoComplete="email"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
-            className="mt-1.5 h-10 w-full rounded-[5px] border border-line bg-surface px-3 text-[14px] text-ink outline-none transition-colors placeholder:text-faint focus:border-ink"
+            className="mt-1.5 h-10 w-full rounded-none border border-line bg-surface px-3 text-[14px] text-ink transition-colors placeholder:text-faint focus:border-accent"
             placeholder="you@college.ac.uk"
           />
         </label>
 
         <label className="block">
-          <span className="text-[12px] text-muted">Password</span>
+          <span className="text-[12px] text-ink-soft">Password</span>
           <input
             type="password"
             required
@@ -109,21 +109,27 @@ export function AuthForm({
             autoComplete={mode === "signin" ? "current-password" : "new-password"}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
-            className="mt-1.5 h-10 w-full rounded-[5px] border border-line bg-surface px-3 text-[14px] text-ink outline-none transition-colors placeholder:text-faint focus:border-ink"
+            className="mt-1.5 h-10 w-full rounded-none border border-line bg-surface px-3 text-[14px] text-ink transition-colors placeholder:text-faint focus:border-accent"
             placeholder="At least 8 characters"
           />
         </label>
       </div>
 
       {error ? (
-        <p className="mt-4 flex items-start gap-2 rounded-[6px] bg-pale-red-bg px-3 py-2.5 text-[12px] leading-relaxed text-pale-red-ink">
+        <p
+          role="alert"
+          className="mt-4 flex items-start gap-2 border-l-2 border-danger bg-danger/10 px-3 py-2.5 text-[12px] leading-relaxed text-danger"
+        >
           <Alert size={14} className="mt-px shrink-0" />
           {error}
         </p>
       ) : null}
 
       {notice ? (
-        <p className="mt-4 flex items-start gap-2 rounded-[6px] bg-pale-green-bg px-3 py-2.5 text-[12px] leading-relaxed text-pale-green-ink">
+        <p
+          role="status"
+          className="mt-4 flex items-start gap-2 border-l-2 border-success bg-success/10 px-3 py-2.5 text-[12px] leading-relaxed text-success"
+        >
           <Check size={14} className="mt-px shrink-0" />
           {notice}
         </p>
@@ -150,8 +156,8 @@ export function AuthForm({
       </p>
 
       <p className="mt-6 border-t border-line pt-5 text-center text-[11px] leading-relaxed text-faint">
-        {APP_NAME} stores nothing about you beyond the email above and the documents
-        you choose to upload.
+        {APP_NAME} keeps the email above and the documents you upload. Nothing else
+        about you is stored.
       </p>
     </form>
   );

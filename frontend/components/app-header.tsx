@@ -11,7 +11,7 @@ import { Button, ButtonLink } from "@/components/ui";
 
 export function AppHeader({ nav }: { nav?: ReactNode }) {
   return (
-    <header className="shrink-0 border-b border-line bg-canvas">
+    <header className="shrink-0 border-b border-line bg-paper">
       <div className="flex h-14 items-center gap-6 px-5">
         <Wordmark />
         <nav className="hidden items-center gap-6 text-[13px] text-muted md:flex">

@@ -6,15 +6,15 @@ import { AuthModal, UPLOAD_REASON } from "@/components/auth-modal";
 import { FileText, Trash, Upload } from "@/components/icons";
 import { MAX_UPLOAD_BYTES, STAGE_LABELS, SUPPORTED_UPLOAD_EXTENSIONS } from "@/lib/config";
 import type { LibraryDocument } from "@/lib/types";
-import { Badge, Button, ButtonLink } from "@/components/ui";
+import { Badge, Button, ButtonLink, SectionLabel } from "@/components/ui";
 
 const TONES = {
   queued: "neutral",
-  parsing: "blue",
-  chunking: "blue",
-  embedding: "yellow",
-  ready: "green",
-  failed: "red",
+  parsing: "accent",
+  chunking: "accent",
+  embedding: "warning",
+  ready: "success",
+  failed: "danger",
 } as const;
 
 function megabytes(bytes: number) {
@@ -80,7 +80,7 @@ export function LibraryColumn({
   return (
     <aside className="flex w-full shrink-0 flex-col border-t border-line bg-surface lg:w-[320px] lg:border-t-0 lg:border-l">
       <div className="flex h-11 shrink-0 items-center px-5">
-        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-faint">Library</p>
+        <SectionLabel>Library</SectionLabel>
         <span className="ml-auto font-mono text-[10px] text-faint">{documents.length} files</span>
       </div>
 
@@ -118,8 +118,8 @@ export function LibraryColumn({
               openPicker();
             }
           }}
-          className={`cursor-pointer rounded-[10px] border border-dashed px-4 py-6 text-center transition-colors ${
-            dragging ? "border-ink bg-sunk" : "border-line-strong hover:border-ink hover:bg-sunk/50"
+          className={`cursor-pointer rounded-none border border-dashed px-4 py-6 text-center transition-colors ${
+            dragging ? "border-accent bg-sunk" : "border-line-strong hover:border-ink hover:bg-sunk/50"
           }`}
         >
           <Upload size={18} className="mx-auto text-muted" />
@@ -132,7 +132,7 @@ export function LibraryColumn({
         </div>
 
         {uploading.length > 0 ? (
-          <div className="mt-3 rounded-[8px] border border-line bg-sunk px-3 py-2.5">
+          <div className="mt-3 rounded-none border border-line bg-sunk px-3 py-2.5">
             <p className="flex items-center gap-2 text-[12px] text-ink-soft">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-faint" />
               Uploading {uploading.length === 1 ? uploading[0] : `${uploading.length} files`}
@@ -144,13 +144,13 @@ export function LibraryColumn({
         ) : null}
 
         {rejected ? (
-          <p className="mt-3 rounded-[6px] bg-pale-red-bg px-3 py-2 text-[11px] leading-relaxed text-pale-red-ink">
+          <p className="mt-3 rounded-none bg-danger/10 px-3 py-2 text-[11px] leading-relaxed text-danger">
             {rejected}
           </p>
         ) : null}
 
         {error ? (
-          <div className="mt-3 rounded-[6px] bg-pale-red-bg px-3 py-2 text-[11px] leading-relaxed text-pale-red-ink">
+          <div className="mt-3 rounded-none bg-danger/10 px-3 py-2 text-[11px] leading-relaxed text-danger">
             <p>{error}</p>
             <button
               type="button"
@@ -158,7 +158,7 @@ export function LibraryColumn({
                 onDismissError();
                 setRejected(null);
               }}
-              className="mt-1 underline underline-offset-4 opacity-75 hover:opacity-100"
+              className="mt-1.5 text-[10px] underline underline-offset-4"
             >
               Dismiss
             </button>
@@ -189,7 +189,7 @@ export function LibraryColumn({
         {documents.map((document) => (
           <div
             key={document.id}
-            className="group mb-1 rounded-[6px] px-3 py-2.5 transition-colors hover:bg-sunk/60"
+            className="group mb-1 rounded-none px-3 py-2.5 transition-colors hover:bg-sunk/60"
           >
             <div className="flex items-start gap-2.5">
               <FileText size={15} className="mt-0.5 shrink-0 text-faint" />
@@ -206,7 +206,7 @@ export function LibraryColumn({
                   aria-label={`Delete ${document.filename}`}
                   disabled={deletingId === document.id}
                   onClick={() => onRemove(document.id)}
-                  className="shrink-0 text-faint opacity-0 transition-opacity hover:text-pale-red-ink focus-visible:opacity-100 group-hover:opacity-100 disabled:opacity-40"
+                  className="shrink-0 text-faint opacity-0 transition-opacity hover:text-danger focus-visible:opacity-100 group-hover:opacity-100 disabled:opacity-40"
                 >
                   <Trash size={14} />
                 </button>
@@ -219,7 +219,7 @@ export function LibraryColumn({
             </div>
 
             {document.error ? (
-              <p className="mt-2 rounded-[5px] bg-pale-red-bg px-2.5 py-1.5 pl-[35px] text-[11px] leading-relaxed text-pale-red-ink">
+              <p className="mt-2 rounded-none bg-danger/10 px-2.5 py-1.5 pl-[35px] text-[11px] leading-relaxed text-danger">
                 {document.error}
               </p>
             ) : null}

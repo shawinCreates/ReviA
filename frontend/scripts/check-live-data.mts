@@ -114,7 +114,7 @@ for (const wire of messages) {
     check("user turn has no citations", mapped.citations.length === 0);
     continue;
   }
-  console.log(`\n        ENDNOTE: ${mapped.content.slice(0, 150).replace(/\n/g, " ")}`);
+  console.log(`\n        REVIA: ${mapped.content.slice(0, 150).replace(/\n/g, " ")}`);
   for (const citation of mapped.citations) {
     console.log(
       `          [${citation.label}] ${citation.filename} p.${citation.page} — "${citation.snippet.slice(0, 60)}…"`,

@@ -6,7 +6,7 @@ import time
 
 from django.core.management.base import BaseCommand
 
-from api.ingestion import ingest_pending
+from api.ingestion import ingest_pending, worker_lock
 
 
 class Command(BaseCommand):
@@ -48,7 +48,24 @@ class Command(BaseCommand):
 
         try:
             while True:
-                summary = ingest_pending(limit=limit)
+                # The same lock the in-process worker takes. Without it this
+                # command and that thread would each pick up the same queued
+                # document and process it twice, because `advance_stage` writes
+                # from a stale in-memory copy rather than a locked read.
+                with worker_lock() as acquired:
+                    if not acquired:
+                        # Not an error: ingestion is already happening, which is
+                        # the normal state when the web process has the worker
+                        # in it. Standing down is what keeps it correct.
+                        self.stdout.write(
+                            "Another ingestion worker is running; standing down. "
+                            "Set REVIA_RUN_PIPELINE_IN_PROCESS=off to stop the "
+                            "in-process worker if you meant to run this instead."
+                        )
+                        return
+
+                    summary = ingest_pending(limit=limit)
+
                 self.stdout.write(
                     "attempted {attempted}  ready {ready}  failed {failed}  "
                     "requeued {retried}  reaped {reaped}".format(**summary)

@@ -54,13 +54,13 @@ export function AuthModal({
         role="dialog"
         aria-modal="true"
         aria-label="Sign in to continue"
-        className="relative w-full max-w-[420px] rounded-t-[12px] border border-line bg-surface p-7 shadow-lift sm:rounded-[12px] sm:p-8"
+        className="relative w-full max-w-[420px] rounded-none border border-line bg-surface p-7 shadow-lift sm:p-8"
       >
         <button
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="absolute top-5 right-5 text-faint transition-colors hover:text-ink"
+          className="absolute top-5 right-5 text-faint transition-colors hover:text-ink motion-reduce:transition-none"
         >
           <Close size={16} />
         </button>

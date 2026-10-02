@@ -213,7 +213,7 @@ wheels = [
 ]
 
 [[package]]
-name = "endnote"
+name = "revia"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

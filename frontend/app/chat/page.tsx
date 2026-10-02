@@ -28,7 +28,7 @@ export default async function ChatPage() {
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
       <AppHeader />
-      <Suspense fallback={<div className="flex-1 bg-canvas" />}>
+      <Suspense fallback={<div className="flex-1 bg-paper" />}>
         <ChatWorkspace
           signedIn={signedIn}
           libraryId={libraryId}

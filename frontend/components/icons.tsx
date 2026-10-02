@@ -78,6 +78,15 @@ export function Trash({ className, size = 16 }: IconProps) {
   );
 }
 
+export function ReviaMark({ className, size = 20 }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M5.5 5.5h13v13h-13z" />
+      <path d="M8 5.5v13M8 12h6.5M11 12l5.5-6.5" />
+    </svg>
+  );
+}
+
 export function Search({ className, size = 16 }: IconProps) {
   return (
     <svg {...base(size)} className={className}>

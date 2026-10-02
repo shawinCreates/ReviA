@@ -1,7 +1,7 @@
 [project]
-name = "endnote"
+name = "revia"
 version = "0.1.0"
-description = "EndNote backend: document ingestion, retrieval, and cited chat over Supabase."
+description = "ReviA backend: document ingestion, retrieval, and cited chat over Supabase."
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
