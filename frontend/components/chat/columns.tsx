@@ -208,6 +208,82 @@ function MessageBlock({ message }: { message: Message }) {
     setOpenSource((current) => (current === label ? null : label));
   }
 
+  function renderRichText(text: string) {
+    const nodes: React.ReactNode[] = [];
+    const paragraphs = text.split("\n\n");
+    
+    for (let pi = 0; pi < paragraphs.length; pi++) {
+      const paragraph = paragraphs[pi];
+      if (paragraph.startsWith("- ") || paragraph.startsWith("* ") || /^\d+\./.test(paragraph)) {
+        // List handling
+        const items: React.ReactNode[] = [];
+        const lines = paragraph.split("\n");
+        for (let li = 0; li < lines.length; li++) {
+          const line = lines[li].replace(/^[-*]\s+|\d+\.\s+/, "");
+          items.push(
+            <li key={li} className="ml-4 my-1">
+              {renderInline(line)}
+            </li>
+          );
+        }
+        nodes.push(<ul key={`list-${pi}`} className="ml-2 my-2 space-y-1 list-disc">{items}</ul>);
+      } else {
+        nodes.push(
+          <p key={`para-${pi}`} className="max-w-[68ch]">
+            {renderInline(paragraph)}
+          </p>
+        );
+      }
+    }
+    return nodes;
+  }
+
+  function renderInline(text: string): React.ReactNode[] {
+    const segments = splitMarkers(text);
+    const nodes: React.ReactNode[] = [];
+    
+    for (const segment of segments) {
+      if (segment.kind === "text") {
+        // Process markdown: **bold**, *italic*, `code`
+        const parts = segment.value.split(/(\*\*.+?\*\*|\*.+?\*|`.+?`)/);
+        for (const part of parts) {
+          if (part.startsWith("**") && part.endsWith("**")) {
+            nodes.push(<strong key={`b-${nodes.length}`}>{part.slice(2, -2)}</strong>);
+          } else if (part.startsWith("*") && part.endsWith("*") && !part.startsWith("**")) {
+            nodes.push(<em key={`i-${nodes.length}`}>{part.slice(1, -1)}</em>);
+          } else if (part.startsWith("`") && part.endsWith("`")) {
+            nodes.push(<code key={`c-${nodes.length}`} className="font-mono text-[13px] bg-sunk px-1 rounded-none">{part.slice(1, -1)}</code>);
+          } else {
+            nodes.push(<span key={`t-${nodes.length}`}>{part}</span>);
+          }
+        }
+      } else {
+        const label = segment.label;
+        const interactive = message.citations.some((c) => c.label === label);
+        nodes.push(
+          <sup key={`marker-${nodes.length}`} className="mx-1 font-mono text-ink">
+            {interactive ? (
+              <button
+                type="button"
+                aria-label={`Source ${label}`}
+                onClick={() => {
+                  toggleSource(label);
+                  document.getElementById(`source-${message.id}-${label}`)?.scrollIntoView({ block: "nearest", behavior: "auto" });
+                }}
+                className="text-[11px] leading-none text-ink hover:text-accent transition-colors"
+              >
+                {label}
+              </button>
+            ) : (
+              <span className="text-[11px] leading-none text-ink">{label}</span>
+            )}
+          </sup>
+        );
+      }
+    }
+    return nodes;
+  }
+
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
@@ -221,38 +297,7 @@ function MessageBlock({ message }: { message: Message }) {
   return (
     <div>
       <div className="space-y-4 text-[14px] font-[family-name:var(--font-sans)] leading-relaxed text-ink-soft">
-        {message.content.split("\n\n").map((paragraph, index) => (
-          <p key={index} className="max-w-[68ch]">
-            {splitMarkers(paragraph).map((segment, segmentIndex) => {
-              if (segment.kind === "text") {
-                return <span key={`text-${segmentIndex}`}>{segment.value}</span>;
-              }
-              const label = segment.label;
-              const interactive = message.citations.some((citation) => citation.label === label);
-              return (
-                <sup key={`marker-${segmentIndex}`} className="mx-2">
-                  {interactive ? (
-                    <button
-                      type="button"
-                      aria-label={`Source ${label}`}
-                      onClick={() => {
-                        toggleSource(label);
-                        document
-                          .getElementById(`source-${message.id}-${label}`)
-                          ?.scrollIntoView({ block: "nearest", behavior: "auto" });
-                      }}
-                      className="border border-line bg-sunk px-1 py-px font-mono text-[11px] leading-none text-muted transition-colors hover:border-ink hover:text-ink motion-reduce:transition-none"
-                    >
-                      source
-                    </button>
-                  ) : (
-                    label
-                  )}
-                </sup>
-              );
-            })}
-          </p>
-        ))}
+        {renderRichText(message.content)}
       </div>
 
       {message.refused ? (
