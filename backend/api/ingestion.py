@@ -1,21 +1,3 @@
-"""Running a document through the pipeline: read, split, embed, store.
-
-The four stages are the ones `DocumentStage` names, and they are driven from one
-place so the ordering cannot drift between callers. Each stage advances the row
-before doing its work, which means the pipeline board shows where something
-actually is rather than where it was last observed.
-
-Two properties are enforced here rather than left to the caller.
-
-**A failure always lands somewhere visible.** Any error leaves the document in
-`failed` with a reason a user can read, never stranded in `embedding` forever.
-The alternative is a document that looks like it is still working on it.
-
-**Re-ingesting replaces rather than appends.** Running a document twice must not
-leave the first run's chunks behind, because they carry the first run's
-embeddings and would be retrieved alongside the new ones.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -50,26 +32,6 @@ WORKER_LOCK_KEY = 0x526576694121  # b"ReviA!"
 
 @contextmanager
 def worker_lock():
-    """Hold the cross-process ingestion lock for the duration of one pass.
-
-    Yields True if the lock was taken, False if another worker already holds it.
-    The caller is expected to do nothing in that case: someone is already doing
-    the work, and two workers inside `ingest_pending` at once would process the
-    same document twice, because `advance_stage` writes the stage from a stale
-    in-memory copy rather than a locked read.
-
-    A Postgres advisory lock is the right primitive here specifically because it
-    is scoped to the session. A worker killed mid-document -- a Ctrl-C, an OOM, a
-    Django autoreload on save -- releases it when the connection dies, so nothing
-    is left behind for the next worker to trip over. A row-level "who owns this"
-    flag would need its own staleness reaper, which is the failure mode this
-    avoids.
-
-    The lock is taken per pass rather than held for a worker's lifetime. Holding
-    it across an idle sleep would pin a database connection open for as long as
-    the process lives, and a session-scoped lock cannot survive the connection
-    being recycled underneath it anyway.
-    """
     conn = connections["default"]
 
     # SQLite, which is what the test suite runs on, has no advisory locks. The
@@ -92,8 +54,6 @@ def worker_lock():
 
 
 class IngestionError(Exception):
-    """A document could not be ingested, with a reason meant for the user."""
-
     def __init__(self, reason: str, *, code: str = "ingestion_failed", retryable: bool = False):
         super().__init__(reason)
         self.reason = reason
@@ -102,7 +62,6 @@ class IngestionError(Exception):
 
 
 def ingest_document(document: Document) -> Document:
-    """Take a queued document all the way to `ready`, or fail it visibly."""
     try:
         pages = _parse(document)
         chunks = _split(document, pages)
@@ -163,14 +122,6 @@ def _split(document: Document, pages: list[parsing.ExtractedPage]) -> list[chunk
 
 
 def _write_chunks(document: Document, chunks: list[chunking.TextChunk]) -> None:
-    """Store the chunk text, without embeddings yet.
-
-    Separate from embedding so a rate-limited embedding call does not lose the
-    parsing work. Chunks from a previous attempt are removed first: a document
-    retried after failing part-way already has chunks on the row, and they were
-    embedded by a run that may not have finished. Leaving them would retrieve
-    two generations of the same text, and only one of them would be cited.
-    """
     Chunk.objects.filter(document=document).delete()
 
     rows = [
@@ -180,6 +131,7 @@ def _write_chunks(document: Document, chunks: list[chunking.TextChunk]) -> None:
             ordinal=chunk.ordinal,
             page_number=chunk.page_number,
             content=chunk.content,
+            heading_path=chunk.heading_path,
             token_count=chunk.estimated_tokens(),
         )
         for chunk in chunks
@@ -222,12 +174,6 @@ def _embed(document: Document) -> None:
 
 
 def _fail(document: Document, reason: str) -> None:
-    """Mark the document failed, whatever stage it had reached.
-
-    Goes through the service rather than writing the row directly, so the
-    transition stays subject to the same rules as a normal stage change and the
-    two cannot drift apart.
-    """
     try:
         library_service.fail_document(document, reason)
     except StageTransitionError:
@@ -242,11 +188,6 @@ def _fail(document: Document, reason: str) -> None:
 
 
 def ingest_pending(limit: int = 10) -> dict[str, int]:
-    """Process queued documents, oldest first.
-
-    The worker entry point. `limit` bounds one pass so a long queue is worked
-    through in order across several invocations rather than one unbounded run.
-    """
     reaped = _reap_stalled()
 
     queued = list(
@@ -290,7 +231,6 @@ def ingest_pending(limit: int = 10) -> dict[str, int]:
         "reaped": reaped,
     }
 
-
 #: Fallback when the setting is absent. Long enough that a slow embedding call is
 #: not interrupted, short enough that a document does not sit in `parsing` for a
 #: week.
@@ -298,31 +238,10 @@ STALLED_AFTER_SECONDS = 15 * 60
 
 
 def stalled_after_seconds() -> int:
-    """How long a document may sit mid-pipeline before it counts as abandoned.
-
-    Read from settings on every call rather than captured at import, because the
-    value depends on DEBUG and this module is imported before settings are
-    necessarily configured.
-    """
     return int(getattr(settings, "PIPELINE_STALLED_SECONDS", STALLED_AFTER_SECONDS))
 
 
 def _reap_stalled() -> int:
-    """Return documents stranded mid-pipeline to the queue.
-
-    A worker that is killed part-way — a deploy, an OOM, a Ctrl-C at the wrong
-    moment — leaves its document in `parsing` or `embedding` with nothing left to
-    move it. Nothing else would ever pick those up: a pass only looks at
-    `queued`. So each pass first resets anything that has been sitting in a
-    non-terminal stage for too long.
-
-    The threshold is measured from `updated_at`, which `advance_stage` refreshes,
-    so a document genuinely still being worked on is not reset out from under the
-    worker handling it. It must therefore stay comfortably above the slowest
-    single stage -- a cold embedding call downloads the model on first use, and
-    reaping a document that is still legitimately embedding would hand it to a
-    second worker while the first is still holding it.
-    """
     cutoff = timezone.now() - timedelta(seconds=stalled_after_seconds())
     stalled = Document.objects.filter(
         stage__in=[DocumentStage.PARSING, DocumentStage.CHUNKING, DocumentStage.EMBEDDING],

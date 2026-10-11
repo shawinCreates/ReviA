@@ -1,12 +1,3 @@
-/**
- * Marker check for `lib/markers.ts`.
- *
- * Guards the citation-marker parser that splits an assistant answer into text
- * and marker segments. Anything it does not match must stay text.
- *
- * Run: npm run check:markers
- */
-
 import { splitMarkers } from "../lib/markers.js";
 
 let failed = 0;

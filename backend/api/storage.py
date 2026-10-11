@@ -1,17 +1,3 @@
-"""Uploading a file to Supabase Storage and reading it back.
-
-S3-compatible rather than the Supabase Python SDK, for one reason that matters
-here: the backend already has the S3 endpoint and keys in its configuration, and
-boto3 does multipart uploads and range reads properly, which the ingestion step
-will need for large PDFs. The SDK's own upload helper would be a second code
-path for the same bucket.
-
-The client is built lazily and cached. Constructing it at import time would make
-a missing credential an import error, which reads as a broken install rather
-than a missing key — and it would do that for every management command,
-including ones that never touch storage.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -31,22 +17,19 @@ _MISSING = object()
 
 
 class StorageNotConfiguredError(Exception):
-    """Storage credentials are absent, so uploads cannot be attempted."""
+    pass
 
 
 class StorageError(Exception):
-    """The bucket rejected the operation."""
+    pass
 
 
 def reset_client_cache() -> None:
-    """Drop the cached boto3 client. Intended for tests and credential changes."""
     _client.cache_clear()
 
 
 @dataclass(frozen=True)
 class StoredObject:
-    """Where a file ended up, and what the bucket says about it."""
-
     path: str
     size: int
     content_type: str
@@ -79,11 +62,6 @@ def _credentials() -> tuple[str, str, str, str]:
 
 @lru_cache(maxsize=1)
 def _client():
-    """A shared boto3 S3 client.
-
-    Cached because building one parses config and opens a connection pool, and
-    a request that uploads and then reads back should not pay for it twice.
-    """
     try:
         import boto3
     except ImportError as exc:  # pragma: no cover - dependency is declared
@@ -103,16 +81,6 @@ def _client():
 
 
 def build_object_path(owner_id: str, filename: str) -> str:
-    """Where a user's file lives in the bucket.
-
-    Namespaced by owner so one account's uploads cannot be guessed or listed
-    from another, and so a future bucket policy can be scoped per prefix without
-    a database lookup.
-
-    The filename is reduced to something safe rather than used as-is. It comes
-    from the client, so a value like `../../other-user/secret.pdf` would
-    otherwise escape the prefix and write wherever it liked.
-    """
     # `slugify` with `allow_unicode=False` gives an ASCII stem, and the
     # extension is re-attached from the cleaned name rather than sliced off the
     # slug: `slugify` drops the dot, so slicing produced "lecture-3pdf" and two
@@ -137,22 +105,11 @@ def build_object_path(owner_id: str, filename: str) -> str:
 
 
 def guess_content_type(filename: str, fallback: str = "application/octet-stream") -> str:
-    """Content type from the extension.
-
-    `mimetypes` is a system table, so it is advisory: an upload is validated by
-    extension allowlist and by inspecting the file, never by trusting this.
-    """
     guessed, _ = mimetypes.guess_type(filename)
     return guessed or fallback
 
 
 def upload_file(owner_id: str, filename: str, fileobj) -> StoredObject:
-    """Store an uploaded file under the caller's prefix.
-
-    `fileobj` is a file-like object, which is what Django hands over for an
-    uploaded file. It is read from the current position, so a caller that has
-    already read part of it sends the remainder.
-    """
     _credentials()  # Fail with a clear message before touching the file.
     path = build_object_path(owner_id, filename)
     content_type = guess_content_type(filename)
@@ -187,12 +144,6 @@ def upload_file(owner_id: str, filename: str, fileobj) -> StoredObject:
 
 
 def download_file(storage_path: str) -> bytes:
-    """Read a stored file into memory.
-
-    Sized for the pipeline's inputs, which are documents a user chose to upload
-    against a 25 MB cap. Streaming to a parser would be the change to make if
-    that ever stops being true.
-    """
     try:
         client = _client()
         response = client.get_object(Bucket=_bucket_name(), Key=storage_path)
@@ -205,11 +156,6 @@ def download_file(storage_path: str) -> bytes:
 
 
 def delete_file(storage_path: str) -> None:
-    """Remove a stored file, treating an already-missing object as success.
-
-    Deletion is the one operation where a missing file is the desired end state,
-    so it must not raise. This is also what makes a retried delete safe.
-    """
     try:
         client = _client()
         client.delete_object(Bucket=_bucket_name(), Key=storage_path)

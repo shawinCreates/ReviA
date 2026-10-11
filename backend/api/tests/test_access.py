@@ -1,11 +1,3 @@
-"""Ownership scoping, and the pipeline rules that protect it.
-
-The service connects as the database owner, which bypasses RLS, so these helpers
-are the only thing standing between one account's document and another account's
-answer. A helper that looks right but filters on the wrong column is exactly the
-failure this design invites, so the scoping is asserted rather than assumed.
-"""
-
 from __future__ import annotations
 
 import uuid
@@ -29,9 +21,6 @@ def _document_for(principal: SupabasePrincipal, filename: str = "paper.pdf") -> 
     return library_service.create_document(
         principal, library, filename=filename, storage_path=f"{principal.id}/{filename}"
     )
-
-
-# --- access helpers --------------------------------------------------------------
 
 
 def test_a_caller_sees_only_their_own_libraries():
@@ -63,8 +52,6 @@ def test_narrowing_documents_to_a_library_stays_inside_the_caller():
     their_library = access.libraries_for(theirs).get()
     mine_documents = access.documents_for(mine, library=their_library)
 
-    # The library is not the caller's, so the combination matches nothing.
-    # It must never widen the result to the other account's documents.
     assert list(mine_documents) == []
 
 
@@ -78,9 +65,6 @@ def test_chunks_are_scoped_to_their_owner():
     contents = set(access.chunks_for(mine).values_list("content", flat=True))
 
     assert contents == {"mine"}
-
-
-# --- default library -------------------------------------------------------------
 
 
 def test_the_default_library_is_created_once():
@@ -113,9 +97,6 @@ def test_creating_a_document_in_another_accounts_library_is_refused():
     assert Document.objects.count() == 0
 
 
-# --- stage transitions -----------------------------------------------------------
-
-
 @pytest.mark.parametrize(
     ("start", "target"),
     [
@@ -138,12 +119,10 @@ def test_the_pipeline_advances_one_stage_at_a_time(start, target):
 @pytest.mark.parametrize(
     ("start", "target"),
     [
-        # Skipping is how a document would end up "ready" with no embeddings.
         (DocumentStage.QUEUED, DocumentStage.READY),
         (DocumentStage.QUEUED, DocumentStage.CHUNKING),
         (DocumentStage.PARSING, DocumentStage.EMBEDDING),
         (DocumentStage.CHUNKING, DocumentStage.READY),
-        # And backwards, which would undo work that has already been done.
         (DocumentStage.CHUNKING, DocumentStage.PARSING),
         (DocumentStage.READY, DocumentStage.QUEUED),
     ],
@@ -207,9 +186,6 @@ def test_a_ready_document_cannot_be_retried_or_failed_silently():
         library_service.advance_stage(document, DocumentStage.QUEUED)
 
 
-# --- readiness and counts --------------------------------------------------------
-
-
 def test_only_documents_with_chunks_count_as_ready():
     ready_principal = _principal()
     document = _document_for(ready_principal)
@@ -241,5 +217,4 @@ def test_stage_counts_include_the_empty_stages():
     assert counts[DocumentStage.QUEUED.value] == 1
     assert counts[DocumentStage.FAILED.value] == 1
     assert counts[DocumentStage.READY.value] == 0
-    # Every stage is present, so the pipeline board can render a column per stage.
     assert set(counts) == {stage.value for stage in DocumentStage}

@@ -1,17 +1,3 @@
-/**
- * First load, from the server.
- *
- * The pages fetch here rather than in the browser so the transcript and the
- * library are on screen at first paint. Two consequences shape the file:
- *
- *  - The cookie is forwarded by hand, because the API is a different host and
- *    the browser's automatic attachment does not exist during SSR.
- *  - Failure resolves to an empty result rather than throwing. A page that
- *    cannot reach the API should render its empty state and let the client
- *    retry, not fail the whole route with a 500. Hiding the error here is a
- *    deliberate trade: the client surfaces it within one poll.
- */
-
 import { cookies } from "next/headers";
 
 import { API_BASE_URL } from "@/lib/config";

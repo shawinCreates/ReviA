@@ -1,13 +1,3 @@
-"""Cookie parsing.
-
-These are the cases that fail silently in production: a chunked cookie that is
-never reassembled, the `base64-` prefix decoded as though it were not there, or
-a session cookie read from a project that has been renamed.
-
-The encoding is verified against `frontend/node_modules/@supabase/ssr`, so if
-these tests pass, the parser agrees with the library the frontend actually uses.
-"""
-
 from __future__ import annotations
 
 import json
@@ -61,7 +51,6 @@ def test_chunk_order_does_not_matter(make_session_cookie):
 
 
 def test_gap_in_chunks_stops_instead_of_splicing_sessions(make_session_cookie):
-    """A missing middle chunk must not join two different sessions."""
     cookies = make_session_cookie(access_token="tok-gap", chunk_size=24)
     names = sorted(cookies, key=lambda n: int(n.rsplit(".", 1)[1]))
     assert len(names) >= 3, "fixture needs at least three chunks for this test"
@@ -69,14 +58,12 @@ def test_gap_in_chunks_stops_instead_of_splicing_sessions(make_session_cookie):
     del cookies[names[1]]
     session = extract_session(cookies)
 
-    # Either nothing, or a decodable token; never a spliced hybrid.
     if session is not None:
         assert session.access_token.startswith("tok-")
         assert session.refresh_token is None or session.refresh_token == "refresh-abc"
 
 
 def test_unchunked_cookie_wins_over_stale_chunks(make_session_cookie):
-    """`combineChunks` tries the plain cookie first; so must this."""
     fresh = make_session_cookie(access_token="tok-fresh")
     stale = make_session_cookie(access_token="tok-stale", chunk_size=24)
 
@@ -88,8 +75,6 @@ def test_unchunked_cookie_wins_over_stale_chunks(make_session_cookie):
 
 
 def test_base64_prefix_is_stripped_before_decoding(make_session_cookie):
-    """`-` is a valid base64url character, so decoding without stripping the
-    prefix yields garbage rather than an error."""
     session = extract_session(make_session_cookie())
 
     assert session is not None
@@ -97,7 +82,6 @@ def test_base64_prefix_is_stripped_before_decoding(make_session_cookie):
 
 
 def test_plain_encoding_without_prefix_is_supported(make_session_cookie):
-    """A project configured with cookieEncoding: plain stores raw JSON."""
     cookies = make_session_cookie(access_token="tok-plain-encoding", plain=True)
     session = extract_session(cookies)
 
@@ -177,7 +161,6 @@ def test_unicode_in_session_survives_the_round_trip(make_session_cookie):
 
 
 def test_encoded_value_is_valid_json_after_decoding(session_payload):
-    """Guards the fixture itself against drifting from the real format."""
     value = build_cookie_value(session_payload("tok"))
     assert value.startswith("base64-")
 

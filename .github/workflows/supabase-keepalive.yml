@@ -1,0 +1,21 @@
+name: Keep Supabase project alive
+
+# A free Supabase project pauses after roughly a week without API activity. Any
+# PostgREST request counts as activity, so ping the REST root once a week.
+on:
+  schedule:
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping PostgREST
+        run: |
+          curl -fsS --retry 3 --retry-delay 10 -o /dev/null \
+            "$SUPABASE_URL/rest/v1/" \
+            -H "apikey: $SUPABASE_ANON_KEY"
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}

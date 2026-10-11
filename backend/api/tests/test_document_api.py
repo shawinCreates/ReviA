@@ -1,10 +1,3 @@
-"""The library and document endpoints.
-
-These go through authentication, so they are also the only tests that prove the
-scoping helpers and the request path fit together: a client signed in as one
-Supabase user must not see another user's rows.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -54,8 +47,6 @@ def test_a_second_library_is_listed_alongside_the_default(auth_client):
 
     libraries = client.get("/api/v1/libraries").json()["libraries"]
 
-    # The default comes first, so the frontend can render it as selected without
-    # sorting the list itself.
     assert [library["name"] for library in libraries] == ["My library", "Papers"]
 
 
@@ -93,7 +84,6 @@ def test_documents_can_be_narrowed_to_one_library(auth_client):
 
 
 def test_another_accounts_library_is_a_404_rather_than_an_empty_list(auth_client):
-    """A 200 with an empty list would confirm the library exists."""
     their_library = auth_client().get("/api/v1/libraries").json()["libraries"][0]
 
     response = auth_client().get(f"/api/v1/documents?library={their_library['id']}")

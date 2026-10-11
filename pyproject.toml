@@ -3,8 +3,9 @@ name = "revia"
 version = "0.1.0"
 description = "ReviA backend: document ingestion, retrieval, and cited chat over Supabase."
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 dependencies = [
+    "gunicorn",
     "django>=6.1",
     "djangorestframework",
     "psycopg[binary]",
@@ -15,10 +16,11 @@ dependencies = [
     # Supabase Storage is S3-compatible, and boto3 does multipart uploads and
     # range reads properly, which the ingestion step needs for large files.
     "boto3",
-    # Document text extraction, one reader per allowed format.
-    "pypdf",
-    "python-docx",
-    "python-pptx",
+    # Document text extraction, one reader per allowed format. Chosen over bare
+    # pdfminer/python-docx readers because it also classifies headings, which is
+    # what lets the chunker cut on section boundaries. Heavy at install time, but
+    # the chapters it saves are worth the disk.
+    "unstructured[docx,pdf,pptx]>=0.27.25",
     # Vector normalisation and nearest-neighbour arithmetic. pgvector's Python
     # side already requires it, and the retrieval layer uses it directly.
     "numpy",
@@ -48,7 +50,7 @@ addopts = "-q"
 
 [tool.ruff]
 line-length = 100
-target-version = "py314"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]

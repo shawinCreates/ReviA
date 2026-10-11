@@ -1,25 +1,7 @@
-/**
- * The signed-in data path, against a live API.
- *
- * Fetches the real payloads the server components request, then runs them
- * through the real mappers and prints exactly what each column would render.
- * This is the boundary the type system cannot check: a field the mapper reads
- * being renamed on the server, or a citation shape the UI would render as
- * "p. 0".
- *
- * The Supabase cookie gate is not simulated here — `getUser()` validates with
- * Supabase, so a signed-in page cannot be forced open without a real session.
- * What this does cover is everything downstream of that decision.
- *
- * Run: API=http://127.0.0.1:8010 npm run check:api
- */
-
 import { toDocument, toMessage, toSession, toDisplayText } from "../lib/api.js";
 import type { WireDocument, WireMessage, WireSession } from "../lib/api.js";
 
 const API = (process.env.API ?? "http://127.0.0.1:8000").replace(/\/$/, "");
-// Overridable so the check can run against an API with auth bypassed, or with a
-// real session cookie forwarded from a browser.
 const COOKIE = process.env.COOKIE ?? "sb=anything";
 
 let failed = 0;

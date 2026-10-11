@@ -1,13 +1,3 @@
-/**
- * Splits an assistant answer into text and citation-marker segments.
- *
- * Markers are already validated against real citations by `toDisplayText` in
- * `lib/api.ts`, which relabels a bracketed number into `[S1]` only when that
- * number resolved to a citation. Anything this function does not match —
- * `[2024]`, `[7]`, a malformed `[S1` — is a model-authored bracket and must
- * render as text.
- */
-
 export type Segment = { kind: "text"; value: string } | { kind: "marker"; label: string };
 
 const GROUP = /\[(S\d+(?:,\s*S\d+)*)\]/g;

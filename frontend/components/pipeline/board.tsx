@@ -19,8 +19,6 @@ export function PipelineBoard({
   signedIn?: boolean;
   initialDocuments?: LibraryDocument[];
 }) {
-  // The board is a live view of the same library the chat column reads, so it
-  // uses the same hook rather than a second, divergent copy of the pipeline.
   const library = useLibrary({
     signedIn,
     initial: initialDocuments,
@@ -51,9 +49,6 @@ export function PipelineBoard({
         </p>
       ) : null}
 
-      {/* Hairline rails: the border is drawn on the cells rather than as a
-          gap-px background, so the grid stays square at every breakpoint and
-          does not need `overflow-hidden` to clip its corners. */}
       <div className="mt-6 grid grid-cols-1 border-l border-t border-line sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {STAGES.map((stage) => {
           const entries = grouped[stage];
@@ -66,8 +61,6 @@ export function PipelineBoard({
               <div className="border-b border-line px-4 py-3.5">
                 <div className="flex items-center gap-2">
                   <StageGlyph stage={stage} />
-                  {/* A real heading per rail, so a screen reader can jump
-                      stage to stage instead of reading six columns of prose. */}
                   <h2 className="text-[13px] font-normal text-ink">{STAGE_LABELS[stage]}</h2>
                   <span
                     className={`ml-auto font-mono text-[11px] ${moving ? "text-accent" : "text-faint"}`}
@@ -105,7 +98,6 @@ export function PipelineBoard({
   );
 }
 
-/** One glyph per rail: a verdict where the stage is a verdict, a dot otherwise. */
 function StageGlyph({ stage }: { stage: (typeof STAGES)[number] }) {
   if (stage === "ready") return <Check size={13} className="text-success" />;
   if (stage === "failed") return <Alert size={13} className="text-danger" />;
@@ -120,8 +112,6 @@ function Card({ document }: { document: LibraryDocument }) {
     >
       <div className="flex items-start gap-2">
         <FileText size={13} className="mt-0.5 shrink-0 text-faint" />
-        {/* `min-w-0 break-words` so a long unbreakable filename wraps inside the
-            card instead of widening the flex item and the page with it. */}
         <p className="line-clamp-2 min-w-0 break-words text-[12px] leading-snug text-ink-soft">
           {document.filename}
         </p>

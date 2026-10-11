@@ -1,10 +1,3 @@
-"""Authentication behaviour.
-
-Token verification is the security boundary, so these tests cover the split
-between "your token is bad" (401) and "our dependency is down" (503). Collapsing
-those two is how a Supabase outage turns into every user appearing logged out.
-"""
-
 from __future__ import annotations
 
 import uuid
@@ -204,27 +197,7 @@ def test_session_endpoint_reports_signed_in(mock_auth_api):
     assert body == {"authenticated": True, "user_id": user_id}
 
 
-# --- cross-origin writes --------------------------------------------------------
-#
-# The origin check is the whole of this project's CSRF defence, and it replaced
-# a Django token check that could never pass. That shipped broken for a reason
-# no test would have caught: every unsafe method returned 403 "CSRF cookie not
-# set", so upload, ask and delete were all dead in development, while the GET
-# tests kept passing.
-#
-# These drive the authentication class directly rather than going through a
-# view. The guard sits between parsing the cookie and verifying the token, so
-# exercising it there keeps a trusted origin distinguishable from a refused one
-# by the *outcome* — a principal, versus a PermissionDenied — without standing
-# up storage, a quota, or an upload to assert on something unrelated.
-
-
 def _authenticate(method: str, *, origin: str | None = None, referer: str | None = None):
-    """Run the auth class over one synthetic request.
-
-    No database and no network: `mock_auth_api` resolves the token, so a request
-    that gets past the origin check returns a real principal rather than a 401.
-    """
     factory = APIRequestFactory()
     handler = getattr(factory, method.lower())
     environ = {}
@@ -235,13 +208,6 @@ def _authenticate(method: str, *, origin: str | None = None, referer: str | None
 
     django_request = handler("/api/v1/documents/upload", **environ)
     django_request.COOKIES[COOKIE] = _cookie_for("token-for-origin-check")
-    # Django's test factory sets `_dont_enforce_csrf_checks = True` on every
-    # request it builds (django/test/client.py:183), which makes
-    # `CsrfViewMiddleware.process_view` accept immediately. Left in place, these
-    # tests pass against code that rejects every write in production — they
-    # assert nothing about CSRF at all. A real request arrives through
-    # `WSGIHandler`, which never sets this flag, so clear it and test what
-    # actually runs.
     django_request._dont_enforce_csrf_checks = False
     return CookieSessionAuthentication().authenticate(Request(django_request))
 
@@ -270,8 +236,6 @@ def test_a_write_from_an_untrusted_origin_is_refused(mock_auth_api):
 
 
 def test_an_origin_that_merely_looks_allowed_is_refused(mock_auth_api):
-    """A prefix match would accept `http://localhost:3000.evil.example`."""
-
     mock_auth_api(200, _user_payload(str(uuid.uuid4())))
 
     with pytest.raises(PermissionDenied):
@@ -279,12 +243,6 @@ def test_an_origin_that_merely_looks_allowed_is_refused(mock_auth_api):
 
 
 def test_an_untrusted_origin_is_refused_before_the_token_is_verified(mock_auth_api):
-    """The order matters: a refused request must not cost a call to Supabase.
-
-    `calls` is empty because nothing was sent to Auth — the origin refused it
-    first. Were this reversed, every forgery attempt would be a live request
-    against a third-party rate limit.
-    """
     calls = mock_auth_api(200, _user_payload(str(uuid.uuid4())))
 
     with pytest.raises(PermissionDenied):
@@ -309,12 +267,6 @@ def test_a_referer_outside_every_allowed_origin_is_refused(mock_auth_api):
 
 
 def test_a_write_carrying_neither_header_is_not_refused(mock_auth_api):
-    """A client with no Origin and no Referer is not a browser.
-
-    It cannot be ridden by a cross-site forgery, because an attacker has no
-    cookie to attach on its behalf, so refusing it would only break curl and
-    the pipeline worker's own calls.
-    """
     mock_auth_api(200, _user_payload(str(uuid.uuid4())))
 
     assert _authenticate("post") is not None
@@ -322,12 +274,6 @@ def test_a_write_carrying_neither_header_is_not_refused(mock_auth_api):
 
 @pytest.mark.parametrize("method", ["post", "put", "patch", "delete"])
 def test_every_unsafe_method_is_refused_from_an_untrusted_origin(mock_auth_api, method):
-    """The guard is keyed on the method, not on the endpoint.
-
-    DELETE is the case that matters most: the frontend's delete call goes
-    through this same class, so a guard written only for POST would leave
-    document removal wide open.
-    """
     mock_auth_api(200, _user_payload(str(uuid.uuid4())))
 
     with pytest.raises(PermissionDenied):
@@ -342,11 +288,6 @@ def test_unsafe_methods_are_accepted_from_an_allowed_origin(mock_auth_api, metho
 
 
 def test_a_get_is_never_checked_for_origin(mock_auth_api):
-    """Safe methods carry the session cookie without any Origin check.
-
-    This is what keeps the frontend's plain `fetch` calls working, and it is why
-    the guard on unsafe methods must not spill over onto reads.
-    """
     mock_auth_api(200, _user_payload(str(uuid.uuid4())))
 
     assert _authenticate("get", origin="https://evil.example") is not None

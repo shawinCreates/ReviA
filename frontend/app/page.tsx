@@ -12,13 +12,12 @@ import {
 } from "@/components/icons";
 import { Reveal } from "@/components/reveal";
 import { SiteFooter, SiteHeader } from "@/components/chrome";
+import { WakeServer } from "@/components/health-status";
 import { ButtonLink, Card, Kbd, SectionLabel } from "@/components/ui";
 
-const HERO_IMAGE = "https://picsum.photos/seed/revia-hero/1200/675";
-const NOTES_IMAGE = "https://picsum.photos/seed/revia-notes/1024/1280";
+const HERO_IMAGE = "/images/hero-notes.jpg";
+const NOTES_IMAGE = "/images/notes-margin.jpg";
 
-// `surface` decides how a bento cell is filled, so the grid is never a run of
-// identical white cards: a hairline page texture, a real image, an accent tint.
 const FEATURES = [
   {
     title: "Every claim points at a page",
@@ -75,8 +74,6 @@ const STEPS = [
   },
 ] as const;
 
-// Four items, because the grid below is two up: a fifth sat alone in the last
-// row. The per-file size limit is on /login and in the chat drop zone.
 const FAQ = [
   {
     q: "Does it use my course material to train anything?",
@@ -99,6 +96,7 @@ const FAQ = [
 export default function Home() {
   return (
     <div className="min-h-dvh">
+      <WakeServer />
       <SiteHeader />
 
       <main>
@@ -107,9 +105,6 @@ export default function Home() {
           <div className="hairline-grid absolute inset-0 opacity-[0.55]" />
           <div className="relative mx-auto max-w-6xl px-6 pt-12 pb-16 md:pt-20 md:pb-24">
             <Reveal index={1}>
-              {/* Two lines at every width ≥ md: the steps are sized so the
-                  tagline measures 1.6 lines of the available measure at md and
-                  1.4 at lg, i.e. ~23% and ~42% of headroom before a third line. */}
               <h1 className="mt-5 font-[family-name:var(--font-display)] text-[2rem] leading-[1.06] tracking-[-0.02em] md:text-[2.25rem] lg:text-[3rem]">
                 {APP_TAGLINE}
               </h1>

@@ -38,8 +38,6 @@ export function ChatColumn({
     if (node) node.scrollTop = node.scrollHeight;
   }, [messages, pending]);
 
-  // The advertised shortcut from the landing page. Scoped to this page so it
-  // cannot swallow "/" while the user is typing a path or a fraction.
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
@@ -70,8 +68,6 @@ export function ChatColumn({
     const question = draft.trim();
     if (!question) return;
 
-    // A signed-out visitor cannot reach the API at all, so the honest response is
-    // to ask them to sign in — not to simulate an answer.
     if (!signedIn) {
       setAuthOpen(false);
       setTimeout(() => setAuthOpen(true), 0);
@@ -112,9 +108,6 @@ export function ChatColumn({
             <div className="rounded-none border border-danger/40 bg-danger/10 px-4 py-3">
               <p className="text-[13px] leading-relaxed text-danger">{error}</p>
               <div className="mt-2.5 flex gap-3">
-                {/* No `opacity-70` here: dimming `text-danger` on the
-                    `bg-danger/10` block lands at 3.42:1 for 12px text. The
-                    underline already carries the affordance. */}
                 <button
                   type="button"
                   onClick={onDismissError}
@@ -211,11 +204,10 @@ function MessageBlock({ message }: { message: Message }) {
   function renderRichText(text: string) {
     const nodes: React.ReactNode[] = [];
     const paragraphs = text.split("\n\n");
-    
+
     for (let pi = 0; pi < paragraphs.length; pi++) {
       const paragraph = paragraphs[pi];
       if (paragraph.startsWith("- ") || paragraph.startsWith("* ") || /^\d+\./.test(paragraph)) {
-        // List handling
         const items: React.ReactNode[] = [];
         const lines = paragraph.split("\n");
         for (let li = 0; li < lines.length; li++) {
@@ -241,10 +233,9 @@ function MessageBlock({ message }: { message: Message }) {
   function renderInline(text: string): React.ReactNode[] {
     const segments = splitMarkers(text);
     const nodes: React.ReactNode[] = [];
-    
+
     for (const segment of segments) {
       if (segment.kind === "text") {
-        // Process markdown: **bold**, *italic*, `code`
         const parts = segment.value.split(/(\*\*.+?\*\*|\*.+?\*|`.+?`)/);
         for (const part of parts) {
           if (part.startsWith("**") && part.endsWith("**")) {

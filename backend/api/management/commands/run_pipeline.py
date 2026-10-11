@@ -1,5 +1,3 @@
-"""Run the ingestion pipeline over queued documents."""
-
 from __future__ import annotations
 
 import time

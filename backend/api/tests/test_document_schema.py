@@ -1,11 +1,3 @@
-"""The document schema, and the parts of it only a real Postgres can check.
-
-Two things are asserted here that SQLite genuinely cannot verify: that the
-`vector` extension is installed, and that the HNSW index over the embeddings
-exists. Both are skipped rather than faked on SQLite, because a fake pass here
-would be worse than no test.
-"""
-
 from __future__ import annotations
 
 import uuid
@@ -21,12 +13,6 @@ pytestmark = pytest.mark.django_db
 
 
 def _owner() -> Profile:
-    """A profile for a Supabase user.
-
-    Ownership is a foreign key to Profile, not a bare uuid, so every owner in
-    these tests has to exist. That mirrors the request path, where verifying a
-    session creates the profile before anything else happens.
-    """
     return Profile.objects.create(id=uuid.uuid4(), email=f"{uuid.uuid4().hex}@example.com")
 
 
@@ -48,9 +34,6 @@ def _document(owner: Profile, library: Library, **kwargs) -> Document:
 def _chunk(owner: Profile, document: Document, ordinal: int, **kwargs) -> Chunk:
     defaults = {"owner": owner, "document": document, "ordinal": ordinal, "content": "text"}
     return Chunk.objects.create(**{**defaults, **kwargs})
-
-
-# --- what only Postgres can prove ------------------------------------------------
 
 
 def test_vector_extension_is_installed():
@@ -85,12 +68,6 @@ def test_embedding_round_trips_on_postgres():
 
 
 def test_row_level_security_is_enabled_on_every_app_table():
-    """The anon key ships in the frontend bundle, so PostgREST must be shut out.
-
-    Supabase grants `anon` full access to every table in the public schema. RLS
-    with no policies is what actually denies it, and this service is unaffected
-    because it connects as the owner, which bypasses RLS.
-    """
     if connection.vendor != "postgresql":
         pytest.skip("row level security is a PostgreSQL feature")
     tables = ["profiles", "libraries", "documents", "chunks"]
@@ -107,17 +84,6 @@ def test_row_level_security_is_enabled_on_every_app_table():
 
 @contextmanager
 def _fresh_connection(*, autocommit: bool = True):
-    """A connection that is not the test's.
-
-    Two reasons. The test's own connection sits inside a transaction, and a
-    permission error inside one poisons it: every later command fails until the
-    block ends, taking the rest of the test with it. And a fresh connection is
-    not the database owner, which is the entire point — RLS is bypassed for the
-    owner, so checking it from the test's connection would prove nothing.
-
-    Autocommit by default, because `ALTER TABLE` and `GRANT` cannot run inside a
-    transaction that has pending trigger events, and a test cannot commit.
-    """
     settings_dict = connection.settings_dict
     conn = psycopg.connect(
         host=settings_dict["HOST"],
@@ -133,10 +99,6 @@ def _fresh_connection(*, autocommit: bool = True):
     finally:
         conn.close()
 
-
-#: Raised when this server cannot pose the question at all — no `anon` role, or
-#: a test user that is not a member of it. Both are properties of the server
-#: rather than of the code under test, so the caller skips.
 _SKIPPABLE_ERRORS = (psycopg.ProgrammingError, psycopg.DatabaseError, psycopg.OperationalError)
 
 
@@ -152,7 +114,6 @@ def _skip_unless_anon_is_usable() -> None:
 
 
 def _rows_visible_to_anon(table: str) -> int | None:
-    """Count rows in `table` as the `anon` role, or None if that is not possible."""
     try:
         with _fresh_connection() as conn:
             conn.execute("SET ROLE anon")
@@ -170,7 +131,6 @@ def _set_row_level_security(table: str, *, enabled: bool) -> None:
 
 
 def _seed_one_document() -> None:
-    """Insert a document the `anon` role would be able to see, if RLS allowed it."""
     owner = _owner()
     document = _document(owner, _library(owner))
     with _fresh_connection() as conn, conn.cursor() as cursor:
@@ -189,13 +149,6 @@ def _seed_one_document() -> None:
 
 
 def test_the_anon_role_cannot_read_documents():
-    """Proves the deny is effective, not just that the flag is set.
-
-    The owner bypasses RLS, so checking the flag alone would prove nothing about
-    what PostgREST can actually reach. The GRANT matters too: Supabase grants
-    `anon` SELECT on every public table, so the refusal has to come from RLS
-    rather than from a missing privilege.
-    """
     _skip_unless_anon_is_usable()
 
     _seed_one_document()
@@ -206,12 +159,6 @@ def test_the_anon_role_cannot_read_documents():
 
 
 def test_anon_would_see_the_rows_without_row_level_security():
-    """The control: the same read, with RLS off, does return the row.
-
-    Without this, "anon read nothing" could just mean the grant never took, or
-    that the table is empty for some unrelated reason. Turning RLS off as the
-    owner is the only way to show the deny is doing the work.
-    """
     _skip_unless_anon_is_usable()
 
     _seed_one_document()
@@ -222,9 +169,6 @@ def test_anon_would_see_the_rows_without_row_level_security():
         assert _rows_visible_to_anon("documents") == 1
     finally:
         _set_row_level_security("documents", enabled=True)
-
-
-# --- structural guarantees ------------------------------------------------------
 
 
 def test_a_document_belongs_to_a_library_and_an_owner():

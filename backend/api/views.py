@@ -1,10 +1,3 @@
-"""API views.
-
-Scope so far is deliberately thin: a health probe that does not touch the
-database, and `/me` which proves the cookie-to-Profile path end to end. The
-library, upload and chat endpoints build on these once they exist.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -35,7 +28,6 @@ logger = logging.getLogger(__name__)
 
 
 def _error(code: str, message: str, status_code: int = status.HTTP_400_BAD_REQUEST) -> Response:
-    """A consistent error shape, so the frontend has one thing to parse."""
     return Response(
         {"error": {"code": code, "message": message}},
         status=status_code,
@@ -43,13 +35,6 @@ def _error(code: str, message: str, status_code: int = status.HTTP_400_BAD_REQUE
 
 
 class HealthView(APIView):
-    """Liveness and readiness in one probe.
-
-    Reports database reachability separately from serving status: an API that
-    cannot reach Postgres is running but not ready, and conflating the two makes
-    a bad deploy look like a crash.
-    """
-
     permission_classes = [AllowAny]
     authentication_classes: list = []
 
@@ -82,17 +67,6 @@ class HealthView(APIView):
 
 
 def _pipeline_summary() -> dict | None:
-    """Per-stage document counts, or None where they are not reported.
-
-    The reason this matters: an upload only creates a queued row, so a worker
-    that is not running leaves documents at "queued" indefinitely while the API
-    still reports itself healthy. Every other signal here says the process is
-    fine; only the queue size says whether ingestion is actually happening.
-
-    DEBUG-gated because this view is unauthenticated, and document counts are
-    not something to publish to whoever asks. The production answer to "is
-    ingestion working" is a metric on the queue depth, not a public endpoint.
-    """
     if not settings.DEBUG:
         return None
 
@@ -123,12 +97,6 @@ def _pipeline_summary() -> dict | None:
 
 
 class MeView(APIView):
-    """The caller's own profile.
-
-    Doubles as the end-to-end check that cookie parsing, token verification and
-    profile provisioning all work against the real Supabase project.
-    """
-
     def get(self, request: Request) -> Response:
         principal: SupabasePrincipal = request.user
         profile = get_or_create_profile(principal)
@@ -145,12 +113,6 @@ class MeView(APIView):
 
 
 class DemoPrincipalView(APIView):
-    """Confirms whether the caller is signed in, without requiring it.
-
-    The frontend needs to know which of two states to render, and a 403 is a
-    clumsy way to say "signed out". This is that signal.
-    """
-
     permission_classes = [AllowAny]
 
     def get(self, request: Request) -> Response:
@@ -165,13 +127,6 @@ class DemoPrincipalView(APIView):
 
 
 class LibraryListView(APIView):
-    """The caller's libraries, with their default one guaranteed to exist.
-
-    Creating the default here rather than at sign-up means a user who signed up
-    before this table existed, or whose first request failed, recovers on their
-    next request instead of having no library to upload into.
-    """
-
     def get(self, request: Request) -> Response:
         principal: SupabasePrincipal = request.user
         library_service.get_or_create_default_library(principal)
@@ -185,8 +140,6 @@ class LibraryListView(APIView):
 
 
 class DocumentListView(APIView):
-    """Documents in one library, for the library column and the pipeline board."""
-
     def get(self, request: Request) -> Response:
         principal: SupabasePrincipal = request.user
 
@@ -212,14 +165,6 @@ class DocumentListView(APIView):
 
 
 class UploadDocumentView(APIView):
-    """Accept a file, store it, and register it as a queued document.
-
-    The row is created before the upload is stored, so the document exists even
-    if storing the bytes fails — otherwise a failed upload would leave the user
-    with nothing on the board and no explanation. `fail_document` records why,
-    and that is what the pipeline column shows.
-    """
-
     throttle_scope = "upload"
 
     def post(self, request: Request) -> Response:
@@ -244,37 +189,45 @@ class UploadDocumentView(APIView):
         if isinstance(library, Response):
             return library
 
-        document = library_service.create_document(
-            principal,
-            library,
-            filename=validated.filename,
-            content_type=validated.content_type,
-            size_bytes=validated.size,
-        )
-
+        # Stored before the row is created, so a queued document always has its
+        # bytes behind it. Creating the row first left a window where the
+        # pipeline worker picked up a queued document whose `storage_path` was
+        # still empty and failed it as "not in storage", while the upload then
+        # finished against an already-failed row -- a file that was safely in the
+        # bucket, marked failed because the worker looked a moment too early.
         try:
             stored = storage.upload_file(principal.id, validated.filename, upload)
         except storage.StorageNotConfiguredError as exc:
             logger.error("Storage is not configured: %s", exc)
-            library_service.fail_document(document, str(exc))
             return _error(
                 "storage_unavailable",
                 "File storage is not configured on this server.",
                 status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-        except storage.StorageError as exc:
-            library_service.fail_document(document, str(exc))
+        except storage.StorageError:
             return _error(
                 "storage_failed",
                 "The file could not be stored.",
                 status.HTTP_502_BAD_GATEWAY,
             )
 
-        # Recorded only once the bytes are known to be in the bucket, so a reader
-        # never follows a storage path that has nothing behind it.
-        document.storage_path = stored.path
-        document.size_bytes = stored.size
-        document.save(update_fields=["storage_path", "size_bytes", "updated_at"])
+        try:
+            document = library_service.create_document(
+                principal,
+                library,
+                filename=validated.filename,
+                content_type=validated.content_type,
+                size_bytes=stored.size,
+                storage_path=stored.path,
+            )
+        except Exception:
+            # The bytes are in the bucket but no row points at them, and nothing
+            # else would ever clean them up.
+            try:
+                storage.delete_file(stored.path)
+            except storage.StorageError:
+                logger.exception("Could not remove orphaned upload %s", stored.path)
+            raise
 
         return Response(
             {"document": DocumentSerializer(document).data},
@@ -283,13 +236,6 @@ class UploadDocumentView(APIView):
 
 
 class DocumentDetailView(APIView):
-    """One document, and deleting it.
-
-    Delete removes the stored file as well as the row, and treats a missing file
-    as success. Retrying a delete is normal, and failing the second time would
-    leave the row gone and the object orphaned with nothing left to clean it up.
-    """
-
     throttle_scope = "session"
 
     def get(self, request: Request, document_id) -> Response:
@@ -327,11 +273,6 @@ class DocumentDetailView(APIView):
 
 
 def _resolve_library(principal: SupabasePrincipal, library_id) -> Library | Response:
-    """The library to upload into, defaulting to the caller's default one.
-
-    A library belonging to somebody else is a 404, matching `DocumentListView`:
-    a 403 would confirm that it exists.
-    """
     if not library_id:
         return library_service.get_or_create_default_library(principal)
 
@@ -342,7 +283,6 @@ def _resolve_library(principal: SupabasePrincipal, library_id) -> Library | Resp
 
 
 def _quota_exceeded(principal: SupabasePrincipal) -> str | None:
-    """A message when the caller is over their allowance, else None."""
     profile = access.profile_for(principal)
     if profile is None:
         return None
@@ -361,17 +301,6 @@ def _quota_exceeded(principal: SupabasePrincipal) -> str | None:
 
 
 class AskView(APIView):
-    """Ask a question about a library, and get an answer with citations.
-
-    The expensive endpoint: it embeds the question, searches, and generates. It
-    has its own throttle scope for that reason, separate from ordinary reads.
-
-    A session is created on the first question if the client did not name one, so
-    a new chat needs no setup call. Continuing a chat means passing the session
-    id back, which is what makes the history real rather than a client-side
-    illusion.
-    """
-
     throttle_scope = "generation"
 
     def post(self, request: Request) -> Response:
@@ -433,8 +362,6 @@ class AskView(APIView):
 
 
 class ChatSessionListView(APIView):
-    """The caller's conversations, newest first."""
-
     def get(self, request: Request) -> Response:
         principal: SupabasePrincipal = request.user
 
@@ -450,8 +377,6 @@ class ChatSessionListView(APIView):
 
 
 class ChatSessionDetailView(APIView):
-    """One conversation and its turns."""
-
     def get(self, request: Request, session_id) -> Response:
         principal: SupabasePrincipal = request.user
 
@@ -470,10 +395,6 @@ class ChatSessionDetailView(APIView):
 
 
 def _first_error(serializer) -> str:
-    """The first validation message, in the same shape as every other error.
-
-    DRF's own `detail` is a nested structure the frontend would have to walk.
-    """
     for errors in serializer.errors.values():
         if isinstance(errors, list) and errors:
             return str(errors[0])

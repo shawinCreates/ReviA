@@ -1,29 +1,3 @@
-"""The ingestion worker: a background thread that empties the upload queue.
-
-`ingest_pending` is the actual pipeline. This module is only the part that
-keeps calling it, because the alternative -- asking someone to remember to run a
-second process -- is a requirement that reliably does not get met. An upload
-returns a queued row and nothing else happens to it until a worker runs, so the
-worker being absent is indistinguishable from ingestion being broken.
-
-Three properties matter more than throughput here.
-
-**One worker, always.** Several web processes can each start this thread, and a
-developer may also be running `run_pipeline`. `ingestion.worker_lock` makes that
-safe: a worker that cannot take the lock does nothing, because someone else is
-already doing the work.
-
-**The thread must never die quietly.** A crashed worker leaves exactly the
-symptom this module exists to remove -- uploads that never progress -- and looks
-like an application bug rather than a dead thread. Every pass is guarded, and
-the loop logs and continues.
-
-**The worker touches the database, so it needs its own connections.** Django
-connections are per-thread. The loop closes them between passes, because a
-connection held open across an idle sleep is a connection the pool cannot reuse
-and a transaction left pinned.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -52,12 +26,6 @@ def is_running() -> bool:
 
 
 def start() -> bool:
-    """Start the worker thread if it is not already running.
-
-    Returns True if a thread is running as a result of this call. Safe to call
-    more than once, which matters because `AppConfig.ready` runs in every process
-    the autoreloader starts and again on every reload.
-    """
     global _thread
 
     with _start_lock:
@@ -79,11 +47,6 @@ def start() -> bool:
 
 
 def stop(timeout: float = 5.0) -> None:
-    """Ask the worker to finish its current pass and exit.
-
-    Only used by tests and by a graceful shutdown path; the thread is a daemon,
-    so nothing depends on this running.
-    """
     global _thread
 
     with _start_lock:
@@ -96,7 +59,6 @@ def stop(timeout: float = 5.0) -> None:
         # to completion rather than being interrupted mid-transaction.
         stop_requested.set()
         thread.join(timeout=timeout)
-
 
 #: Read by `_run` between passes. Separate from `_thread` because a thread that
 #: is mid-pass must finish that pass before noticing a stop request.
@@ -123,7 +85,6 @@ def _run() -> None:
 
 
 def _pass() -> bool:
-    """Run one pass. Returns True if it found work worth polling again soon."""
     with ingestion.worker_lock() as acquired:
         if not acquired:
             # Another worker has it. It is doing this work; standing by is the

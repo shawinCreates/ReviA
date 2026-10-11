@@ -1,17 +1,3 @@
-"""Validating an uploaded file before any of it is stored.
-
-Three checks, in increasing order of cost, because a request that can be
-rejected from the filename alone should not first be written to the bucket:
-
-  * extension, from the configured allowlist;
-  * size, from the upload header, before any bytes are read;
-  * the file's own magic bytes, because the first two are both attacker-supplied.
-
-The last one is why a `.pdf` is not assumed to be a PDF. A cheap sniff of the
-leading bytes catches a renamed executable or an HTML file uploaded as a
-document, which matters once these files are parsed and quoted back to users.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -38,12 +24,6 @@ _SNIFF_BYTES = 8
 
 
 class UploadRejected(Exception):
-    """An upload that must not be stored.
-
-    Carries a user-facing `reason`, because this is shown in the upload panel
-    rather than logged for an operator to read.
-    """
-
     def __init__(self, reason: str, *, code: str = "rejected"):
         super().__init__(reason)
         self.reason = reason
@@ -52,21 +32,12 @@ class UploadRejected(Exception):
 
 @dataclass(frozen=True)
 class ValidatedUpload:
-    """An upload that passed every check, ready to store."""
-
     filename: str
     size: int
     content_type: str
 
 
 def clean_filename(raw: str) -> str:
-    """Reduce a client-supplied filename to a safe basename.
-
-    Two separate problems here. Path traversal: browsers on some platforms send
-    a full path, and `PurePosixPath` plus taking the last segment removes any
-    directory component. And a leading dot or a null byte, either of which can
-    confuse a downstream filesystem.
-    """
     # A null byte truncates the name in some C libraries, which is how a
     # "safe.pdf\x00.png" style bypass works. Remove it before anything else.
     candidate = raw.replace("\x00", "")
@@ -84,7 +55,6 @@ def clean_filename(raw: str) -> str:
 
 
 def check_extension(filename: str) -> str:
-    """Confirm the extension is allowed, returning it lower-cased."""
     suffix = PurePosixPath(filename).suffix.lower()
     if suffix not in settings.ALLOWED_UPLOAD_EXTENSIONS:
         allowed = ", ".join(settings.ALLOWED_UPLOAD_EXTENSIONS)
@@ -96,7 +66,6 @@ def check_extension(filename: str) -> str:
 
 
 def check_size(size: int) -> None:
-    """Reject an upload that is too large, or that claims a nonsensical size."""
     limit = settings.MAX_UPLOAD_BYTES
 
     if size <= 0:
@@ -112,14 +81,6 @@ def check_size(size: int) -> None:
 
 
 def check_magic_bytes(filename: str, head: bytes) -> None:
-    """Confirm the file is what its name claims.
-
-    The extension and the size both come from the client, so this is the only
-    check that looks at the file itself. A mismatch is worth rejecting rather
-    than warning about: these files are parsed and quoted, and an HTML file
-    arriving as a document is exactly the case that turns into something worse
-    downstream.
-    """
     suffix = PurePosixPath(filename).suffix.lower()
     expected = _MAGIC_NUMBERS.get(suffix)
 
@@ -140,13 +101,6 @@ def check_magic_bytes(filename: str, head: bytes) -> None:
 
 
 def validate_upload(upload) -> ValidatedUpload:
-    """Run every check over a Django uploaded file, in cheapest-first order.
-
-    `upload` is a `django.core.files.uploadedfile.UploadedFile`. Reading it here
-    is safe and necessary: the checks need the leading bytes, and a caller that
-    reaches storage afterwards will find the file already at the end, so
-    `rewind` puts it back for them.
-    """
     filename = clean_filename(upload.name)
 
     # `size` is populated from the request headers, so it can be trusted to be

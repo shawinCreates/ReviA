@@ -1,15 +1,3 @@
-/**
- * Mapping check for `lib/api.ts`, run against a payload captured from the real
- * API.
- *
- * The mappers are the one place a server field name and a UI field name meet.
- * TypeScript cannot catch a rename on either side, because both sides are typed
- * against their own idea of the contract — the mismatch only shows up when a real
- * response is fed through. That is what this does.
- *
- * Run: npm run check:mapping
- */
-
 import { toDisplayText, toDocument, toMessage, type WireDocument, type WireMessage } from "../lib/api.js";
 
 let failed = 0;
@@ -53,9 +41,6 @@ check(
   toDisplayText("See note [2024] and [1].", one) === "See note [2024] and [S1].",
   toDisplayText("See note [2024] and [1].", one),
 );
-// A phantom reference is dropped from the text, not left dangling. The backend
-// already discards it from the citation list, so keeping `[7]` visible while
-// removing its card would be the one inconsistent option.
 check(
   "a group with one real and one invented reference keeps only the real one",
   toDisplayText("Both [1, 7] matter.", one) === "Both [S1] matter.",
@@ -106,8 +91,6 @@ const staged: WireDocument[] = [
   { ...wireDocument, stage: "chunking", page_count: 44, chunk_count: 0, error_message: null },
   { ...wireDocument, stage: "embedding", page_count: 44, chunk_count: 0, error_message: null },
   { ...wireDocument, stage: "failed", page_count: null, chunk_count: 0, error_message: "No readable text found." },
-  // A document whose count annotation was never applied, which is what a freshly
-  // created document looks like before it has any chunks.
   { ...wireDocument, stage: "ready", page_count: null, chunk_count: null, error_message: null },
 ];
 for (const entry of staged) {

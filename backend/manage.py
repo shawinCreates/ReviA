@@ -1,11 +1,4 @@
 #!/usr/bin/env python
-"""Django management entrypoint.
-
-Run through uv so the interpreter matches the locked environment:
-
-    uv run python backend/manage.py check
-    uv run python backend/manage.py migrate
-"""
 
 from __future__ import annotations
 
@@ -17,9 +10,6 @@ BACKEND_DIR = Path(__file__).resolve().parent
 
 
 def main() -> None:
-    # `config` and `api` are top-level packages inside backend/, so that
-    # directory has to be importable regardless of the current working
-    # directory the command is invoked from.
     sys.path.insert(0, str(BACKEND_DIR))
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 
@@ -31,7 +21,6 @@ def main() -> None:
             "virtual environment is on the path."
         ) from exc
     execute_from_command_line(sys.argv)
-
 
 if __name__ == "__main__":
     main()

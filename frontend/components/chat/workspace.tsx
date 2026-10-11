@@ -18,11 +18,6 @@ type Props = {
   initialSessionId: string | null;
 };
 
-/**
- * Owns the state the three columns share, so the library and the transcript
- * cannot disagree about what is in the library. The columns stay presentational
- * and hold no fetching of their own.
- */
 export function ChatWorkspace({
   signedIn,
   libraryId,
@@ -48,8 +43,6 @@ export function ChatWorkspace({
     fallbackMessages: DEMO_MESSAGES,
   });
 
-  // A library with nothing searchable is a different screen from one that can
-  // answer, and finding that out by asking an empty library is a bad first run.
   const readyCount = useMemo(
     () => library.documents.filter((entry) => entry.status === "ready").length,
     [library.documents],

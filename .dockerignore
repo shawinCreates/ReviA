@@ -1,0 +1,10 @@
+.git
+.venv
+backend/.env
+.env
+frontend
+brag-output
+graphify-out
+__pycache__
+*.pyc
+.pytest_cache

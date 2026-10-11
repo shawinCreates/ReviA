@@ -18,13 +18,6 @@ MIGRATED_EMBEDDING_DIM = 384
 
 @register()
 def check_embedding_dimension(app_configs, **kwargs):
-    """Warn when the configured embedding width no longer matches the database.
-
-    The model field reads `settings.EMBEDDING_DIM`, so the model and the setting
-    can never disagree. What can drift is the *migration*, which froze the width
-    when the column was created. Comparing against that is the only way to catch
-    someone raising the setting expecting new embeddings to just work.
-    """
     from django.conf import settings
 
     configured = settings.EMBEDDING_DIM
@@ -49,12 +42,6 @@ def check_embedding_dimension(app_configs, **kwargs):
 
 @register()
 def check_allowed_upload_extensions(app_configs, **kwargs):
-    """The extension allowlist has to be non-empty and lower-case.
-
-    Extension checks compare against a lower-cased filename, so an upper-case
-    entry silently matches nothing. A typo there would reject every upload while
-    looking correct in the config.
-    """
     from django.conf import settings
 
     allowed = settings.ALLOWED_UPLOAD_EXTENSIONS
@@ -78,7 +65,6 @@ def check_allowed_upload_extensions(app_configs, **kwargs):
 
     return []
 
-
 #: Commands that never serve requests, so they must not start a worker. A
 #: worker during `migrate` would try to ingest before the tables exist; during
 #: `run_pipeline` it would simply compete with the command the operator asked
@@ -97,13 +83,6 @@ class ApiConfig(AppConfig):
         self._maybe_start_pipeline_worker()
 
     def _maybe_start_pipeline_worker(self) -> None:
-        """Start the ingestion worker, when this process should have one.
-
-        An upload only creates a queued row, so without a worker documents never
-        leave "queued" and chat answers decline for want of context. Running the
-        worker here means it starts with the server, which is the only way it
-        reliably gets started at all.
-        """
         from django.conf import settings
 
         if settings.TESTING:
@@ -132,12 +111,6 @@ class ApiConfig(AppConfig):
 
 
 def _is_serving() -> bool:
-    """True when this process is running a server rather than a management command.
-
-    Checked against argv rather than a settings flag because there is no honest
-    way to tell from configuration alone: `migrate` and `runserver` use the same
-    settings module.
-    """
     argv = sys.argv
 
     # `uvicorn api:app`, `gunicorn config.wsgi`, `hypercorn ...` put the server
@@ -154,11 +127,6 @@ def _is_serving() -> bool:
 
 
 def _is_autoreload_supervisor() -> bool:
-    """True in the process that supervises `runserver --reload`.
-
-    The supervisor has `RUN_MAIN` unset; the worker process it forks has
-    `RUN_MAIN=true`. Only the latter serves requests.
-    """
     import os
 
     return "runserver" in sys.argv and os.environ.get("RUN_MAIN") != "true"

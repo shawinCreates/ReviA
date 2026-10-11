@@ -55,9 +55,6 @@ export function LibraryColumn({
 
     const incoming = Array.from(files);
 
-    // Rejected here rather than at the API: the same rules are enforced
-    // server-side, but telling someone their 40MB scan is too large while they
-    // are still looking at the file is better than after the upload finishes.
     const tooBig = incoming.find((file) => file.size > MAX_UPLOAD_BYTES);
     if (tooBig) {
       setRejected(`${tooBig.name} is ${megabytes(tooBig.size)}. The limit is ${megabytes(MAX_UPLOAD_BYTES)}.`);
@@ -93,7 +90,6 @@ export function LibraryColumn({
           className="hidden"
           onChange={(event) => {
             onFiles(event.target.files);
-            // Reset so re-picking the same file fires `change` again.
             event.target.value = "";
           }}
         />
@@ -137,9 +133,6 @@ export function LibraryColumn({
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-faint" />
               Uploading {uploading.length === 1 ? uploading[0] : `${uploading.length} files`}
             </p>
-            {/* An honest "in progress" rather than a fabricated percentage: the
-                browser exposes no upload progress through fetch, and a bar that
-                guesses is worse than one that admits it does not know. */}
           </div>
         ) : null}
 

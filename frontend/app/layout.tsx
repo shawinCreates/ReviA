@@ -34,12 +34,6 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    // `data-scroll-behavior` tells Next.js the smooth scrolling in globals.css
-    // is deliberate, so route transitions do not warn about having to suspend
-    // it. `<noscript>` covers the flip side of `Reveal`: the server renders
-    // `.reveal` at opacity 0 and only the intersection observer reveals it, so
-    // without JavaScript this page would be blank. Both are inline, so they
-    // beat the stylesheet they override.
     <html
       lang="en"
       data-scroll-behavior="smooth"

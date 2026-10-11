@@ -1,35 +1,3 @@
-"""Turning text into vectors.
-
-There are two providers, behind one function, because they fail differently and
-neither is a good default on its own.
-
-**`local`** runs a small embedding model in this process. It needs no API key,
-makes no network call per document, and costs nothing. It is the default because
-it is the only one that works with no external account — which is the situation
-this project was in: the configured NVIDIA account has chat models but no
-embedding function, and every request to it returned 404 or 410.
-
-**`nvidia`** calls NVIDIA's hosted embeddings. Kept because it is what a hosted
-deployment would want, and because switching to it is one environment variable.
-It is not the default because, as configured, it does not work.
-
-Three things this module exists to make hard to get wrong.
-
-**Batching.** One call for a document's chunks rather than one each. Providers
-rate-limit, and a retry after a 429 is far cheaper than not having asked.
-
-**Query and passage are not the same input.** An embedding model is trained on a
-question and a passage at once, and the question is framed differently. Handing
-both the same prefix blunts the separation, so the two go in as different
-inputs.
-
-**Comparison.** Vectors from two different models are not comparable even at
-identical dimensions. The distance computes, looks plausible, and returns
-nonsense — which reads as "retrieval is broken" rather than "these vectors came
-from different models". The model is asserted against configuration at the one
-place a vector enters the system.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -63,13 +31,6 @@ KIND_PASSAGE = "passage"
 
 
 class EmbeddingError(Exception):
-    """The embedding provider could not be used.
-
-    `retryable` distinguishes a rate limit or an outage from a request that will
-    never succeed, which is what decides whether the pipeline retries the
-    document or fails it for the user to see.
-    """
-
     def __init__(self, reason: str, *, retryable: bool = False):
         super().__init__(reason)
         self.reason = reason
@@ -77,21 +38,10 @@ class EmbeddingError(Exception):
 
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
-    """Embed passages, returning one vector per input, in order.
-
-    Order is the contract. Callers zip these with their chunks positionally, and
-    a response that came back reordered would attach every embedding to the
-    wrong text — producing answers that cite confidently and wrongly.
-    """
     return _embed(texts, KIND_PASSAGE)
 
 
 def embed_query(text: str) -> list[float]:
-    """Embed a single question.
-
-    Shares the comparison check with `embed_texts` rather than trusting the
-    caller, because the failure it prevents is silent.
-    """
     vectors = _embed([text], KIND_QUERY)
     if not vectors:
         raise EmbeddingError("The embedding provider returned nothing for the query.")
@@ -129,17 +79,11 @@ def _embed(texts: list[str], kind: str) -> list[list[float]]:
 
     return vectors
 
-
 # --- local provider ------------------------------------------------------------
 
 
 @lru_cache(maxsize=1)
 def _local_model():
-    """The in-process embedding model, loaded on first use.
-
-    Lazy because loading costs a second and a few hundred megabytes, and most
-    requests — a health check, an upload, a list — never embed anything.
-    """
     try:
         from fastembed import TextEmbedding
     except ImportError as exc:  # pragma: no cover - depends on the install
@@ -167,7 +111,6 @@ def _local_model():
 
 
 def reset_client_cache() -> None:
-    """Drop the cached model and client. Intended for tests and config changes."""
     _local_model.cache_clear()
     _nvidia_client.cache_clear()
 
@@ -199,7 +142,6 @@ def _embed_local(texts: list[str], kind: str) -> list[list[float]]:
 
     return vectors
 
-
 # --- hosted provider -----------------------------------------------------------
 
 
@@ -220,14 +162,12 @@ def _nvidia_endpoint() -> str:
 
 @lru_cache(maxsize=1)
 def _nvidia_client() -> httpx.Client:
-    """A shared client, so connection pooling survives across calls."""
     return httpx.Client(
         timeout=httpx.Timeout(settings.SUPABASE_AUTH_TIMEOUT_SECONDS * 6, connect=10.0)
     )
 
 
 def _embed_nvidia(texts: list[str], kind: str) -> list[list[float]]:
-    """One batch, retried on a rate limit or a server-side failure."""
     payload = {
         "model": settings.EMBED_MODEL,
         "input": texts,
@@ -340,10 +280,4 @@ def _parse_nvidia_response(response: httpx.Response, expected: int) -> list[list
 
 
 def _backoff(attempt: int) -> float:
-    """Exponential backoff, capped.
-
-    Capped because a fourth attempt waiting a minute holds a worker for a minute,
-    and a request that has not succeeded by then is better reported as failed and
-    retried by the pipeline later.
-    """
     return min(RETRY_BASE_SECONDS * (2 ** (attempt - 1)), RETRY_MAX_SECONDS)

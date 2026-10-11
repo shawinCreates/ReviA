@@ -3,13 +3,17 @@ import { Suspense } from "react";
 
 import { AppHeader } from "@/components/app-header";
 import { PipelineBoard } from "@/components/pipeline/board";
+import { HealthGate } from "@/components/health-status";
 import { getUser } from "@/lib/auth";
+import { pingApi } from "@/lib/api";
 import { loadDocuments } from "@/lib/api-server";
 import { STAGES } from "@/lib/config";
 
 export const metadata = { title: "Ingestion pipeline" };
 
 export default async function PipelinePage() {
+  if (!(await pingApi())) return <HealthGate path="/pipeline" />;
+
   const user = await getUser();
   const signedIn = Boolean(user);
   const documents = user ? await loadDocuments() : [];
@@ -42,8 +46,6 @@ export default async function PipelinePage() {
             </Link>
           </div>
 
-          {/* Sized and filled like the board it stands in for, so the swap to
-              the real rails does not jump the page or flash a tone. */}
           <Suspense
             fallback={
               <div

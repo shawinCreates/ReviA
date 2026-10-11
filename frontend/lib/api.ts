@@ -1,23 +1,5 @@
-/**
- * The only place that knows the API's wire format.
- *
- * The backend speaks Django/DRF conventions — snake_case, `{"error": {...}}`
- * envelopes, and citation markers as bare `[1]`. The UI has its own shapes and
- * a deliberate `S1` label convention. Translating here rather than inside
- * components means the components never grow a field rename or an error-shape
- * check, and the wire format can move without a sweep through the tree.
- *
- * This module is deliberately free of `next/headers` so the client hooks can
- * share the mappers and the browser transport. The server-component loaders that
- * need the cookie jar live in `api-server.ts` and import from here.
- */
-
 import { API_BASE_URL, type Stage } from "@/lib/config";
 import type { ChatSession, Citation, LibraryDocument, Message } from "@/lib/types";
-
-/* -------------------------------------------------------------------------- */
-/* Wire types                                                                  */
-/* -------------------------------------------------------------------------- */
 
 export type WireCitation = {
   reference: number;
@@ -29,14 +11,6 @@ export type WireCitation = {
   snippet: string;
 };
 
-/**
- * Only the fields the mapper reads.
- *
- * The API returns more — `storage_path`, `content_type`, `updated_at`,
- * `stage_label` — and they are deliberately left out. A narrower type means a
- * field the UI depends on cannot be quietly dropped from here without the
- * build noticing, and nothing on screen needs a signed storage path.
- */
 export type WireDocument = {
   id: string;
   filename: string;
@@ -76,14 +50,9 @@ type AskResponse = {
   used_context: number;
 };
 
-/* -------------------------------------------------------------------------- */
-/* Errors                                                                      */
-/* -------------------------------------------------------------------------- */
-
 export class ApiError extends Error {
   readonly code: string;
   readonly status: number;
-  /** True when trying the same request again could plausibly succeed. */
   readonly retryable: boolean;
 
   constructor(message: string, code: string, status: number) {
@@ -116,8 +85,6 @@ async function readError(response: Response): Promise<ApiError> {
     if (body?.error?.code) code = body.error.code;
     if (body?.error?.message) message = body.error.message;
   } catch {
-    // A non-JSON body means something in front of the API answered instead of
-    // it — a proxy error page, most often. The status still says something.
   }
 
   if (!message) {
@@ -132,17 +99,12 @@ async function readError(response: Response): Promise<ApiError> {
   return new ApiError(message, code, response.status);
 }
 
-/* -------------------------------------------------------------------------- */
-/* Transports                                                                  */
-/* -------------------------------------------------------------------------- */
-
 async function parse<T>(response: Response): Promise<T> {
   if (!response.ok) throw await readError(response);
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
 
-/** Browser calls. Cookies are cross-origin here, so they must be attached. */
 async function browserFetch(path: string, init: RequestInit = {}): Promise<Response> {
   return fetch(`${API_BASE_URL}${path}`, {
     ...init,
@@ -151,24 +113,8 @@ async function browserFetch(path: string, init: RequestInit = {}): Promise<Respo
   });
 }
 
-/* -------------------------------------------------------------------------- */
-/* Mapping                                                                     */
-/* -------------------------------------------------------------------------- */
-
 const MARKER = /\[(\d+(?:\s*,\s*\d+)*)\]/g;
 
-/**
- * Rewrites `[1]` into `[S1]` so the inline markers agree with the labels on the
- * citation cards. Done here, once, rather than in every component that renders
- * an answer: the stored text keeps the model's own numbering, and only the
- * display is relabelled.
- *
- * Only references that resolved to a real citation are relabelled. A bracketed
- * number that is not a citation — a year in `[2024]`, or a reference the backend
- * discarded because the model invented it — is left exactly as written. Relabelling
- * it would render a link to a passage that does not exist, which is the single
- * failure this design exists to prevent.
- */
 export function toDisplayText(text: string, references?: Set<number>): string {
   return text.replace(MARKER, (match, group: string) => {
     const numbers = group
@@ -176,8 +122,6 @@ export function toDisplayText(text: string, references?: Set<number>): string {
       .map((part) => part.trim())
       .filter(Boolean);
 
-    // With no known citations there is nothing to relabel against, so the text is
-    // left alone rather than guessed at.
     if (!references) return match;
 
     const labels = numbers
@@ -239,9 +183,6 @@ export function toSession(wire: WireSession): ChatSession {
     id: wire.id,
     title: wire.title,
     createdAt: wire.created_at,
-    // A session fetched on its own has no annotation behind it, so the count is
-    // absent rather than zero. Falling back to 0 would show "0 messages" on a
-    // conversation that has plenty, which is worse than omitting the number.
     messageCount: wire.message_count ?? 0,
   };
 }
@@ -257,17 +198,25 @@ export function toMessage(wire: WireMessage, retrieved?: number): Message {
     role: wire.role,
     content: toDisplayText(wire.content, references),
     citations,
-    // Nothing was offered, so the model had no choice but to decline. Distinct
-    // from an answer that ignored its sources, which is the case worth flagging.
     refused: wire.role === "assistant" && hadContext === 0,
     uncited: wire.role === "assistant" && hadContext > 0 && citations.length === 0,
     createdAt: wire.created_at,
   };
 }
 
-/* -------------------------------------------------------------------------- */
-/* Browser calls                                                               */
-/* -------------------------------------------------------------------------- */
+export async function pingApi(timeoutMs = 6_000): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/health`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!response.ok) return false;
+    const body = (await response.json()) as { status?: string };
+    return body.status === "ok";
+  } catch {
+    return false;
+  }
+}
 
 export async function fetchDocuments(): Promise<LibraryDocument[]> {
   const body = await parse<{ documents: WireDocument[] }>(
@@ -313,13 +262,6 @@ export type AskResult = {
   usedContext: number;
 };
 
-/**
- * Asks a question and returns the assistant's turn.
- *
- * The user turn is appended locally by the caller rather than round-tripped, so
- * it appears the instant it is sent instead of after a search and a generation
- * that together take seconds.
- */
 export async function askQuestion(
   question: string,
   options: { sessionId?: string | null; libraryId?: string | null } = {},

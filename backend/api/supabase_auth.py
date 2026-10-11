@@ -1,20 +1,3 @@
-"""Turning a Supabase access token into a verified user.
-
-The token is verified by asking Supabase Auth to resolve it rather than by
-checking a signature locally. That costs one small HTTP request and buys two
-things worth more than the latency:
-
-  * the answer is authoritative regardless of whether the project signs with a
-    legacy shared secret or the newer asymmetric keys, so there is no local
-    verification path that can drift from the project's actual configuration;
-  * a token signed by anyone else is rejected by construction.
-
-Results are cached by token hash. A verified access token is immutable, so a
-cache hit cannot go stale. The TTL bounds memory; it is not a correctness
-mechanism. Failures are never cached, since a transport blip must not log
-everyone out.
-"""
-
 from __future__ import annotations
 
 import base64
@@ -34,7 +17,7 @@ _MAX_CACHE_ENTRIES = 1024
 
 
 class TokenVerificationError(Exception):
-    """The access token could not be verified."""
+    pass
 
 
 @dataclass(frozen=True)
@@ -45,35 +28,22 @@ class SupabaseUser:
 
 
 def _token_fingerprint(token: str) -> str:
-    """A hash suitable as a cache key.
-
-    The raw token is never a cache key, so it cannot leak through a cache dump.
-    A full sha256 rather than a prefix, because truncated hashes collide.
-    """
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 def _decode_jwt_claims(token: str) -> dict:
-    """Read a JWT payload without verifying it.
-
-    Only used to enrich an identity that has already been verified against the
-    Auth API. Nothing here can grant access on its own, so a malformed payload
-    degrades to no extra claims rather than raising.
-    """
     parts = token.split(".")
     if len(parts) != 3:
         return {}
     try:
         padded = parts[1] + "=" * (-len(parts[1]) % 4)
         claims = json.loads(base64.urlsafe_b64decode(padded))
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         return {}
     return claims if isinstance(claims, dict) else {}
 
 
 class _VerifiedUserCache:
-    """Small TTL cache of verified users, keyed by token fingerprint."""
-
     def __init__(self) -> None:
         self._entries: dict[str, tuple[float, dict]] = {}
         self._lock = Lock()
@@ -104,12 +74,10 @@ class _VerifiedUserCache:
         with self._lock:
             self._entries.clear()
 
-
 _cache = _VerifiedUserCache()
 
 
 def _fetch_verified_user(token: str) -> dict:
-    """Ask Supabase Auth to resolve the token to a user."""
     url = f"{settings.SUPABASE_URL}/auth/v1/user"
     headers = {
         "apikey": settings.SUPABASE_ANON_KEY,
@@ -143,11 +111,6 @@ def _fetch_verified_user(token: str) -> dict:
 
 
 def verify_access_token(token: str) -> SupabaseUser:
-    """Verify a Supabase access token and return the authenticated user.
-
-    Raises TokenVerificationError for both a rejected token and an unreachable
-    Auth API; the message distinguishes them.
-    """
     if not token or not token.strip():
         raise TokenVerificationError("missing_token")
 
@@ -165,5 +128,4 @@ def verify_access_token(token: str) -> SupabaseUser:
 
 
 def clear_cache() -> None:
-    """Drop all cached verifications. Intended for tests."""
     _cache.clear()

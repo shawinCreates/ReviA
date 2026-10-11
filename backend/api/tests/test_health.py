@@ -16,7 +16,6 @@ def test_health_reports_ok_when_database_is_reachable():
 
 @pytest.mark.django_db
 def test_health_reports_degraded_without_raising(monkeypatch):
-    """A probe must report an unreachable database, not 500 on it."""
     from django.db import connection
 
     class Boom:
@@ -44,6 +43,5 @@ def test_health_reports_degraded_without_raising(monkeypatch):
 
 
 def test_health_needs_no_authentication():
-    """No cookie, no credentials, still answers."""
     response = APIClient().get("/api/v1/health")
     assert response.status_code == 200
