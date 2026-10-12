@@ -22,6 +22,21 @@ RUN uv sync --frozen --no-dev
 # start, and the cache dir points at this copy.
 RUN uv run python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5', cache_dir='/app/.cache/model')"
 
+# unstructured[pdf] pulls the GUI build of opencv, whose module imports cv2 even
+# for the "fast" partitioning strategy this image uses. cv2 links against X11/GL
+# libraries that the slim base omits, so install them. Kept as its own late
+# layer: extending the libgomp install above would invalidate the cached
+# dependency and model layers and re-download both on every build.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libgl1 libglib2.0-0t64 libsm6 libxext6 libxrender1 libxfixes3 libice6 libx11-6 \
+        libxcb1 libxcb-shm0 libxcb-render0 libxcb-xfixes0 libxcb-randr0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Put the venv on PATH so the CMD's `gunicorn` resolves; `uv sync` installs it
+# to /app/.venv/bin and nothing else adds it. Set after the dependency layers so
+# changing it does not invalidate the cached install above.
+ENV PATH="/app/.venv/bin:$PATH"
+
 COPY backend backend
 
 WORKDIR /app/backend
@@ -29,4 +44,4 @@ EXPOSE 8000
 
 # One worker on purpose: the in-process model plus the advisory-lock pipeline
 # worker want a single process, and the free tier has 512 MB of RAM.
-CMD ["/bin/sh", "-c", "gunicorn config.wsgi.application --bind 0.0.0.0:${PORT:-8000} --workers 1 --threads 4 --access-logfile -"]
+CMD ["/bin/sh", "-c", "gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers 1 --threads 4 --access-logfile -"]

@@ -31,6 +31,16 @@ class SupabasePrincipal:
 
 class CookieSessionAuthentication(BaseAuthentication):
     def authenticate(self, request: Request) -> tuple[SupabasePrincipal, str] | None:
+        bearer = request.META.get("HTTP_AUTHORIZATION", "")
+        if bearer.startswith("Bearer "):
+            # The browser sends the access token when the app and the API live on
+            # different origins, where the session cookie cannot cross the site
+            # boundary. A bearer header is never attached to a request the user
+            # did not mean to send, so no CSRF check applies; CORS gates which
+            # origins may use it in the first place.
+            access_token = bearer.removeprefix("Bearer ")
+            return self._verify(access_token)
+
         session = extract_session(request.COOKIES)
         if session is None or not session.access_token:
             return None
@@ -49,8 +59,11 @@ class CookieSessionAuthentication(BaseAuthentication):
         if request.method in _UNSAFE_METHODS:
             self.enforce_csrf(request)
 
+        return self._verify(session.access_token)
+
+    def _verify(self, access_token: str) -> tuple[SupabasePrincipal, str]:
         try:
-            user = verify_access_token(session.access_token)
+            user = verify_access_token(access_token)
         except TokenVerificationError as exc:
             message = str(exc)
             if message.startswith("supabase_auth_unavailable"):
@@ -70,7 +83,7 @@ class CookieSessionAuthentication(BaseAuthentication):
             raise AuthenticationFailed("Invalid or expired session.", code="invalid_token") from exc
 
         principal = SupabasePrincipal(id=user.id, email=user.email)
-        return principal, session.access_token
+        return principal, access_token
 
     def authenticate_header(self, request: Request) -> str:
         # Deliberately not "Bearer": this API is cookie-authenticated, and

@@ -106,11 +106,31 @@ async function parse<T>(response: Response): Promise<T> {
 }
 
 async function browserFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers);
+  const token = await accessToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
   return fetch(`${API_BASE_URL}${path}`, {
     ...init,
+    headers,
     credentials: "include",
     cache: "no-store",
   });
+}
+
+let cachedAccessToken: { value: string; at: number } | null = null;
+
+async function accessToken(): Promise<string | null> {
+  if (cachedAccessToken && Date.now() - cachedAccessToken.at < 60_000) {
+    return cachedAccessToken.value;
+  }
+  const { createClient } = await import("@/lib/supabase/client");
+  const {
+    data: { session },
+  } = await createClient().auth.getSession();
+  const value = session?.access_token ?? null;
+  cachedAccessToken = value ? { value, at: Date.now() } : null;
+  return value;
 }
 
 const MARKER = /\[(\d+(?:\s*,\s*\d+)*)\]/g;

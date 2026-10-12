@@ -4,7 +4,7 @@ import uuid
 
 import httpx
 import pytest
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.test import APIClient, APIRequestFactory
 
@@ -278,6 +278,47 @@ def test_every_unsafe_method_is_refused_from_an_untrusted_origin(mock_auth_api, 
 
     with pytest.raises(PermissionDenied):
         _authenticate(method, origin="https://evil.example")
+
+
+def _authenticate_bearer(token: str, *, method: str = "get", origin: str | None = None):
+    factory = APIRequestFactory()
+    environ = {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+    if origin is not None:
+        environ["HTTP_ORIGIN"] = origin
+    django_request = getattr(factory, method)("/api/v1/me", **environ)
+    django_request._dont_enforce_csrf_checks = False
+    return CookieSessionAuthentication().authenticate(Request(django_request))
+
+
+def test_bearer_token_authenticates(mock_auth_api):
+    user_id = str(uuid.uuid4())
+    mock_auth_api(200, _user_payload(user_id))
+
+    result = _authenticate_bearer("fresh-token")
+
+    assert result is not None
+    principal, token = result
+    assert principal.id == user_id
+    assert token == "fresh-token"
+
+
+def test_rejected_bearer_token_raises_invalid_token(mock_auth_api):
+    mock_auth_api(401, {"message": "invalid"})
+
+    with pytest.raises(AuthenticationFailed):
+        _authenticate_bearer("stale-token")
+
+
+@pytest.mark.django_db
+def test_me_authenticates_with_bearer_token(mock_auth_api):
+    user_id = str(uuid.uuid4())
+    mock_auth_api(200, _user_payload(user_id, "bearer@example.com"))
+
+    client = APIClient()
+    response = client.get("/api/v1/me", HTTP_AUTHORIZATION="Bearer fresh-token")
+
+    assert response.status_code == 200, response.content
+    assert response.json()["user"]["id"] == user_id
 
 
 @pytest.mark.parametrize("method", ["post", "delete"])

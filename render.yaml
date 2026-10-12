@@ -9,6 +9,8 @@ services:
     envVars:
       - key: DJANGO_DEBUG
         value: "false"
+      - key: PDF_PARTITION_STRATEGY
+        value: fast
       - key: DJANGO_SECRET_KEY
         sync: false
       - key: DJANGO_ALLOWED_HOSTS
