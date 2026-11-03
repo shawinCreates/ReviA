@@ -15,18 +15,10 @@ from api.models import Chunk, Document, DocumentStage
 
 logger = logging.getLogger(__name__)
 
-#: Chunks written per batch. One transaction per batch rather than one for the
-#: whole document, so a large file does not hold a single long transaction and a
-#: failure part-way leaves the earlier work committed.
+#: Chunks written per database batch; one transaction per batch, not one per document.
 WRITE_BATCH_SIZE = 100
 
-#: How long to wait before retrying a document whose embedding call was
-#: rate-limited. The document is put back in `queued` and picked up again.
-RETRY_DELAY_SECONDS = 30
-
-#: Arbitrary but stable key for the cross-process ingestion lock. It has to be
-#: one fixed number: a worker that picked a different key would happily run at
-#: the same time as every other one.
+#: One fixed key; every process that ingests must take the same lock.
 WORKER_LOCK_KEY = 0x526576694121  # b"ReviA!"
 
 
@@ -34,9 +26,7 @@ WORKER_LOCK_KEY = 0x526576694121  # b"ReviA!"
 def worker_lock():
     conn = connections["default"]
 
-    # SQLite, which is what the test suite runs on, has no advisory locks. The
-    # worker never starts there, so this only keeps `run_pipeline` from crashing
-    # against a test database.
+    # SQLite (the test suite) has no advisory locks.
     if conn.vendor != "postgresql":
         yield True
         return
@@ -71,9 +61,6 @@ def ingest_document(document: Document) -> Document:
         _fail(document, exc.reason)
         raise
     except Exception as exc:
-        # A bug here is still a document the user is waiting on, so it is marked
-        # failed rather than left pending. The exception type is logged for an
-        # operator; the user gets something they can act on.
         logger.exception("Ingestion of document %s raised an unexpected error", document.id)
         _fail(document, f"Ingestion failed unexpectedly ({type(exc).__name__}).")
         raise IngestionError(
@@ -85,14 +72,12 @@ def ingest_document(document: Document) -> Document:
 
 def _parse(document: Document) -> list[parsing.ExtractedPage]:
     if not document.storage_path:
-        # Reached when a document row exists but its bytes are not in the bucket,
-        # which is what a failed upload leaves behind if the row was created
-        # first and the store then failed.
         raise IngestionError(
             "This document's file is not in storage.", code="missing_file"
         )
 
     advance_stage(document, DocumentStage.PARSING)
+    logger.info("Document %s (%s): parsing", document.id, document.filename)
 
     try:
         data = storage.download_file(document.storage_path)
@@ -108,6 +93,7 @@ def _parse(document: Document) -> list[parsing.ExtractedPage]:
 
     document.page_count = parsing.page_count(pages)
     document.save(update_fields=["page_count", "updated_at"])
+    logger.info("Document %s: %d page(s) extracted", document.id, len(pages))
 
     return pages
 
@@ -146,11 +132,12 @@ def _write_chunks(document: Document, chunks: list[chunking.TextChunk]) -> None:
 def _embed(document: Document) -> None:
     advance_stage(document, DocumentStage.EMBEDDING)
 
-    # Ordered by ordinal so the text sent for embedding is in a known order, and
-    # the vectors are written back against the same order.
+    # Ordered by ordinal, so embedding and the vector write-back see one order.
     chunks = list(Chunk.objects.filter(document=document).order_by("ordinal"))
     if not chunks:
         raise IngestionError("This document produced no text to index.", code="no_text")
+
+    logger.info("Document %s: embedding %d chunk(s)", document.id, len(chunks))
 
     try:
         vectors = embed_texts([chunk.content for chunk in chunks])
@@ -171,15 +158,14 @@ def _embed(document: Document) -> None:
     advance_stage(document, DocumentStage.READY)
     document.error_message = ""
     document.save(update_fields=["error_message", "updated_at"])
+    logger.info("Document %s: ready", document.id)
 
 
 def _fail(document: Document, reason: str) -> None:
+    logger.warning("Document %s marked failed: %s", document.id, reason)
     try:
         library_service.fail_document(document, reason)
     except StageTransitionError:
-        # Unreachable while failing is legal from every stage, which it is. Kept
-        # so that a future tightening of the transition rules degrades into a
-        # log line rather than an exception that hides the real reason.
         logger.warning(
             "Document %s could not be moved to failed from %s",
             document.id,
@@ -204,10 +190,6 @@ def ingest_pending(limit: int = 10) -> dict[str, int]:
             ready += 1
         except IngestionError as exc:
             if exc.retryable:
-                # Back to queued so the next pass tries again, with the reason
-                # kept on the row so the board can say why it is still waiting.
-                # The retry transition clears the message, so it is written
-                # afterwards rather than instead of it.
                 try:
                     library_service.advance_stage(document, DocumentStage.QUEUED)
                 except StageTransitionError:
@@ -215,12 +197,11 @@ def ingest_pending(limit: int = 10) -> dict[str, int]:
                     continue
                 document.error_message = exc.reason[:2000]
                 document.save(update_fields=["error_message", "updated_at"])
+                logger.info("Document %s requeued: %s", document.id, exc.reason[:120])
                 retried += 1
             else:
                 failed += 1
         except Exception:
-            # `ingest_document` has already marked it failed and logged the
-            # cause. Counting it here keeps one pass's totals honest.
             failed += 1
 
     return {
@@ -231,9 +212,7 @@ def ingest_pending(limit: int = 10) -> dict[str, int]:
         "reaped": reaped,
     }
 
-#: Fallback when the setting is absent. Long enough that a slow embedding call is
-#: not interrupted, short enough that a document does not sit in `parsing` for a
-#: week.
+#: Fallback when PIPELINE_STALLED_SECONDS is not set.
 STALLED_AFTER_SECONDS = 15 * 60
 
 
@@ -251,10 +230,6 @@ def _reap_stalled() -> int:
     count = stalled.count()
     if count:
         logger.warning("Returning %d stalled document(s) to the queue", count)
-        # Straight to `queued` rather than through `advance_stage`: a stalled
-        # document's own transition history is not what is being repaired here,
-        # and the failed-then-queued path would also clear a failure reason that
-        # a new attempt is about to replace anyway.
         stalled.update(
             stage=DocumentStage.QUEUED,
             error_message="",

@@ -139,26 +139,20 @@ REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
     ],
-    # The session is held in a cookie, so it arrives on a state-changing request
-    # without any other proof of intent. Without this, any site could POST to
-    # this API using the visitor's cookies. The referrer check is the second
-    # line of defence, for the case where a browser omits the header.
     "DEFAULT_THROTTLE_CLASSES": [
         "rest_framework.throttling.ScopedRateThrottle",
     ],
     "DEFAULT_THROTTLE_RATES": {
         # Per session, which is what a cookie gives us to key on.
         "session": _rate("THROTTLE_SESSION_PER_MINUTE", "60"),
-        # Per caller, for anything expensive: embedding and generation both cost
-        # money per request, and a cookie session is otherwise unmetered.
+        # Per caller; embedding and generation are unmetered otherwise.
         "generation": _rate("THROTTLE_GENERATION_PER_HOUR", "60", "h"),
         "upload": _rate("THROTTLE_UPLOAD_PER_HOUR", "120", "h"),
     },
     "UNAUTHENTICATED_USER": None,
 }
 
-# The browser holds the Supabase session cookie, so credentialed cross-origin
-# requests are mandatory. Origins are explicit, never "*".
+# The browser holds the Supabase session cookie; origins stay explicit, never "*".
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_ORIGINS = _csv(
     "DJANGO_CORS_ALLOWED_ORIGINS",
@@ -166,15 +160,7 @@ CORS_ALLOWED_ORIGINS = _csv(
 )
 CORS_ALLOW_HEADERS = ["accept", "authorization", "content-type", "x-csrftoken"]
 
-# The same list, reused rather than asked for twice. Django's CSRF check has its
-# own trusted-origins setting, and leaving it unset while CORS is configured is
-# how the two drift apart and a request ends up passing one and failing the
-# other. `api.auth` also reads CORS_ALLOWED_ORIGINS directly for its own origin
-# check, so there is one list to keep correct.
 CSRF_TRUSTED_ORIGINS = _csv("DJANGO_CSRF_TRUSTED_ORIGINS", ",".join(CORS_ALLOWED_ORIGINS))
-# No cookie is written by this service, so there is no CSRF cookie for the
-# frontend to echo. The double-submit pattern needs one; the Origin/Referer
-# check in `api.auth` is what actually rejects a forged request.
 CSRF_COOKIE_NAME = ""
 
 SUPABASE_AUTH_CACHE_SECONDS = int(os.environ.get("SUPABASE_AUTH_CACHE_SECONDS", "300"))
@@ -182,16 +168,14 @@ SUPABASE_AUTH_TIMEOUT_SECONDS = float(os.environ.get("SUPABASE_AUTH_TIMEOUT_SECO
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
-NVIDIA_API_KEY = os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVIDIA_KEY", "")
-NVIDIA_BASE_URL = os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
 
-EMBEDDING_PROVIDER = os.environ.get("EMBEDDING_PROVIDER", "local")
+# Cloudflare Workers AI hosts the embeddings (API token with Workers AI Edit).
+CLOUDFLARE_ACCOUNT_ID = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
+CLOUDFLARE_API_TOKEN = os.environ.get("CLOUDFLARE_API_TOKEN", "")
+CLOUDFLARE_BASE_URL = os.environ.get("CLOUDFLARE_BASE_URL", "https://api.cloudflare.com/client/v4")
 
-EMBEDDING_DIM = int(os.environ.get("EMBEDDING_DIM", "384"))
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "BAAI/bge-small-en-v1.5")
-
-EMBEDDING_CACHE_DIR = os.environ.get("EMBEDDING_CACHE_DIR", "")
-
+EMBEDDING_DIM = int(os.environ.get("EMBEDDING_DIM", "384"))
 EMBEDDING_QUERY_PREFIX = os.environ.get(
     "EMBEDDING_QUERY_PREFIX", "Represent this sentence for searching relevant passages: "
 )

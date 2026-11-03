@@ -5,18 +5,17 @@ import time
 from functools import lru_cache
 
 import httpx
+import numpy as np
 from django.conf import settings
 
-from api.embeddings import as_query_vector, check_embeddings_are_comparable
+from api.embeddings import as_query_vector
 
 logger = logging.getLogger(__name__)
 
-#: Inputs per request to a hosted provider. Sized to stay under its per-request
-#: limit while keeping the request count low for a large document.
+#: Inputs per request to the provider; sized for its per-request limit.
 BATCH_SIZE = 32
 
-#: Attempts for a rate-limited or transiently failing request, including the
-#: first. Three is enough to ride out a burst without holding a worker.
+#: Attempts for a transiently failing request, including the first.
 MAX_ATTEMPTS = 3
 
 #: Base delay for the retry backoff, in seconds. Exponential from here.
@@ -25,9 +24,16 @@ RETRY_BASE_SECONDS = 0.5
 #: Never wait longer than this between attempts, however many have failed.
 RETRY_MAX_SECONDS = 8.0
 
-#: The input kinds, and what a hosted provider calls them.
+#: Passage vs query embeddings differ only in the prefix they carry.
 KIND_QUERY = "query"
 KIND_PASSAGE = "passage"
+
+#: The one model this deployment embeds with; the id it carries at Cloudflare.
+SUPPORTED_MODEL = "BAAI/bge-small-en-v1.5"
+SUPPORTED_MODEL_CLOUDFLARE_ID = "@cf/baai/bge-small-en-v1.5"
+
+#: Cloudflare's code for the free allocation being spent; blocks until 00:00 UTC.
+QUOTA_ERROR_CODE = 4006
 
 
 class EmbeddingError(Exception):
@@ -52,24 +58,28 @@ def _embed(texts: list[str], kind: str) -> list[list[float]]:
     if not texts:
         return []
 
-    check_embeddings_are_comparable(settings.EMBED_MODEL)
-
-    provider = settings.EMBEDDING_PROVIDER
-    if provider == "local":
-        vectors = _embed_local(texts, kind)
-    elif provider == "nvidia":
-        vectors = _embed_nvidia(texts, kind)
-    else:
+    if settings.EMBED_MODEL != SUPPORTED_MODEL:
         raise EmbeddingError(
-            f"EMBEDDING_PROVIDER is {provider!r}; expected 'local' or 'nvidia'.",
+            f"the stored vectors were indexed with {SUPPORTED_MODEL}; "
+            f"EMBED_MODEL is {settings.EMBED_MODEL}",
             retryable=False,
         )
+
+    account_id, token = _cloudflare_config()
+    endpoint = _cloudflare_endpoint(account_id)
+    prefix = settings.EMBEDDING_QUERY_PREFIX if kind == KIND_QUERY else ""
+    prepared = [f"{prefix}{text}" for text in texts]
+
+    # Batches of BATCH_SIZE; results extend in input order.
+    vectors: list[list[float]] = []
+    for offset in range(0, len(prepared), BATCH_SIZE):
+        batch = prepared[offset : offset + BATCH_SIZE]
+        vectors.extend(_cloudflare_request(endpoint, token, batch))
 
     expected = settings.EMBEDDING_DIM
     for index, vector in enumerate(vectors):
         if len(vector) != expected:
-            # Caught here rather than at insert time, where Postgres would
-            # report a generic dimension mismatch against the column.
+            # A wrong width reads later as a Postgres column mismatch; name it here.
             raise EmbeddingError(
                 f"the embedding provider returned {len(vector)} dimensions for "
                 f"input {index} but EMBEDDING_DIM is {expected}; "
@@ -79,102 +89,37 @@ def _embed(texts: list[str], kind: str) -> list[list[float]]:
 
     return vectors
 
-# --- local provider ------------------------------------------------------------
+
+def _cloudflare_config() -> tuple[str, str]:
+    account_id = settings.CLOUDFLARE_ACCOUNT_ID
+    token = settings.CLOUDFLARE_API_TOKEN
+    if not account_id or not token:
+        raise EmbeddingError(
+            "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are not configured.",
+            retryable=False,
+        )
+    return account_id, token
+
+
+def _cloudflare_endpoint(account_id: str) -> str:
+    base = settings.CLOUDFLARE_BASE_URL.rstrip("/")
+    return f"{base}/accounts/{account_id}/ai/run/{SUPPORTED_MODEL_CLOUDFLARE_ID}"
 
 
 @lru_cache(maxsize=1)
-def _local_model():
-    try:
-        from fastembed import TextEmbedding
-    except ImportError as exc:  # pragma: no cover - depends on the install
-        raise EmbeddingError(
-            "EMBEDDING_PROVIDER is 'local' but fastembed is not installed; "
-            "run `uv sync`, or set EMBEDDING_PROVIDER to 'nvidia'",
-            retryable=False,
-        ) from exc
-
-    logger.info("Loading the local embedding model %s", settings.EMBED_MODEL)
-    try:
-        return TextEmbedding(
-            settings.EMBED_MODEL, cache_dir=settings.EMBEDDING_CACHE_DIR or None
-        )
-    except Exception as exc:
-        # Most often the model cannot be downloaded on first run. Saying so is
-        # more useful than the library's own error, which does not mention that
-        # it needs the network once.
-        raise EmbeddingError(
-            f"the local embedding model {settings.EMBED_MODEL!r} could not be "
-            f"loaded ({type(exc).__name__}); it is downloaded on first use and "
-            f"needs network access, or set EMBEDDING_CACHE_DIR to a prepared copy",
-            retryable=False,
-        ) from exc
-
-
-def reset_client_cache() -> None:
-    _local_model.cache_clear()
-    _nvidia_client.cache_clear()
-
-
-def _embed_local(texts: list[str], kind: str) -> list[list[float]]:
-    model = _local_model()
-    prefix = settings.EMBEDDING_QUERY_PREFIX if kind == KIND_QUERY else ""
-    prepared = [f"{prefix}{text}" for text in texts]
-
-    try:
-        vectors = [as_query_vector(vector) for vector in model.embed(prepared)]
-    except EmbeddingError:
-        raise
-    except Exception as exc:
-        raise EmbeddingError(
-            f"the local embedding model failed ({type(exc).__name__})",
-            retryable=False,
-        ) from exc
-
-    if len(vectors) != len(prepared):
-        # A local model that returns the wrong count is a bug worth surfacing
-        # rather than pairing off positionally, which would silently misalign
-        # every vector after the first.
-        raise EmbeddingError(
-            f"the local embedding model returned {len(vectors)} vectors for "
-            f"{len(prepared)} inputs",
-            retryable=False,
-        )
-
-    return vectors
-
-# --- hosted provider -----------------------------------------------------------
-
-
-def _nvidia_key() -> str:
-    key = settings.NVIDIA_API_KEY
-    if not key:
-        raise EmbeddingError(
-            "EMBEDDING_PROVIDER is 'nvidia' but no key is configured "
-            "(set NVIDIA_API_KEY).",
-            retryable=False,
-        )
-    return key
-
-
-def _nvidia_endpoint() -> str:
-    return f"{settings.NVIDIA_BASE_URL.rstrip('/')}/embeddings"
-
-
-@lru_cache(maxsize=1)
-def _nvidia_client() -> httpx.Client:
+def _cloudflare_client() -> httpx.Client:
     return httpx.Client(
         timeout=httpx.Timeout(settings.SUPABASE_AUTH_TIMEOUT_SECONDS * 6, connect=10.0)
     )
 
 
-def _embed_nvidia(texts: list[str], kind: str) -> list[list[float]]:
-    payload = {
-        "model": settings.EMBED_MODEL,
-        "input": texts,
-        "encoding_format": "float",
-        "input_type": kind,
-        "truncate": "END",
-    }
+def reset_client_cache() -> None:
+    _cloudflare_client.cache_clear()
+
+
+def _cloudflare_request(endpoint: str, token: str, texts: list[str]) -> list[list[float]]:
+    # pooling:"cls" plus normalisation keeps vectors interchangeable with stored ones.
+    payload = {"text": texts, "pooling": "cls"}
 
     last_error: str | None = None
 
@@ -183,22 +128,34 @@ def _embed_nvidia(texts: list[str], kind: str) -> list[list[float]]:
             time.sleep(_backoff(attempt))
 
         try:
-            response = _nvidia_client().post(
-                _nvidia_endpoint(),
+            response = _cloudflare_client().post(
+                endpoint,
                 json=payload,
                 headers={
-                    "Authorization": f"Bearer {_nvidia_key()}",
+                    "Authorization": f"Bearer {token}",
                     "Accept": "application/json",
                 },
             )
         except httpx.HTTPError as exc:
-            # A transport failure is our network or theirs; both are worth
-            # retrying, and neither says anything about the request.
+            # A transport failure is our network or theirs; both retry.
             last_error = str(exc)
-            logger.warning(
-                "Embedding request failed to send (attempt %d): %s", attempt + 1, exc
-            )
+            logger.warning("Embedding request failed to send (attempt %d): %s", attempt + 1, exc)
             continue
+
+        try:
+            body = response.json()
+        except ValueError as exc:
+            raise EmbeddingError(
+                "the embedding provider returned a malformed response", retryable=True
+            ) from exc
+        if not isinstance(body, dict):
+            raise EmbeddingError(
+                "the embedding provider returned a malformed response", retryable=True
+            )
+
+        code, message = _cloudflare_error(body)
+        if code == QUOTA_ERROR_CODE or "free allocation" in message.lower():
+            raise _cloudflare_quota_error()
 
         if response.status_code == 429 or response.status_code >= 500:
             # Rate limited or their fault. Retryable by definition.
@@ -210,27 +167,29 @@ def _embed_nvidia(texts: list[str], kind: str) -> list[list[float]]:
             )
             continue
 
-        if response.status_code in (404, 410):
-            # The model is not available to this account. Every retry fails the
-            # same way, and the two codes together are what a retired model
-            # looks like, so this says so rather than reporting a bare status.
+        if 200 <= response.status_code < 300:
+            if body.get("success") is not False:
+                return _parse_cloudflare_response(body, len(texts))
+
+            # Some model failures arrive inside a 200; still transient.
+            last_error = f"the model failed (code {code}): {message}"
+            logger.warning("Embedding model failed (attempt %d): %s", attempt + 1, last_error)
+            continue
+
+        if response.status_code in (401, 403):
             raise EmbeddingError(
-                f"the embedding provider does not offer {settings.EMBED_MODEL} "
-                f"({response.status_code}); the model may have been retired, or "
-                f"this account may not have access to embeddings",
+                f"Cloudflare rejected the credentials ({response.status_code}); "
+                "check CLOUDFLARE_API_TOKEN",
                 retryable=False,
             )
 
-        if response.status_code != 200:
-            # Other 4xx means the request itself is wrong. Retrying sends the
-            # same wrong request again.
-            raise EmbeddingError(
-                f"the embedding provider rejected the request "
-                f"({response.status_code}); check EMBED_MODEL and the API key",
-                retryable=False,
-            )
-
-        return _parse_nvidia_response(response, len(texts))
+        # Other 4xx is a wrong request; retrying would send it again.
+        raise EmbeddingError(
+            f"the embedding provider rejected the request ({response.status_code}"
+            + (f", code {code}" if code is not None else "")
+            + "); check CLOUDFLARE_ACCOUNT_ID and the Workers AI model id",
+            retryable=False,
+        )
 
     raise EmbeddingError(
         f"the embedding provider could not be reached after {MAX_ATTEMPTS} attempts"
@@ -239,44 +198,57 @@ def _embed_nvidia(texts: list[str], kind: str) -> list[list[float]]:
     )
 
 
-def _parse_nvidia_response(response: httpx.Response, expected: int) -> list[list[float]]:
-    try:
-        body = response.json()
-    except ValueError as exc:
-        raise EmbeddingError(
-            "the embedding provider returned a malformed response", retryable=True
-        ) from exc
-
-    rows = body.get("data") if isinstance(body, dict) else None
+def _parse_cloudflare_response(body: dict, expected: int) -> list[list[float]]:
+    result = body.get("result")
+    rows = result.get("data") if isinstance(result, dict) else None
     if not isinstance(rows, list):
         raise EmbeddingError(
             "the embedding provider returned no data array", retryable=True
         )
 
-    # The API documents an `index` per row because results may arrive out of
-    # order. Sorting by it is what makes the positional contract hold; assuming
-    # the array is already ordered is how embeddings end up attached to the wrong
-    # text.
-    indexed = []
-    for position, row in enumerate(rows):
-        if not isinstance(row, dict) or "embedding" not in row:
-            raise EmbeddingError(
-                "the embedding provider returned a row without a vector", retryable=True
-            )
-        index = row.get("index")
-        indexed.append((position if index is None else int(index), row["embedding"]))
-
-    indexed.sort(key=lambda pair: pair[0])
-    vectors = [as_query_vector(row) for _, row in indexed]
-
-    if len(vectors) != expected:
+    # `data` binds to `text` positionally; no input index comes back.
+    if len(rows) != expected:
         raise EmbeddingError(
-            f"the embedding provider returned {len(vectors)} vectors for "
+            f"the embedding provider returned {len(rows)} vectors for "
             f"{expected} inputs",
             retryable=True,
         )
 
-    return vectors
+    try:
+        vectors = np.asarray(rows, dtype=np.float32)
+    except (TypeError, ValueError) as exc:
+        raise EmbeddingError(
+            "the embedding provider returned a row without a vector", retryable=True
+        ) from exc
+
+    norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+    # A zero norm has no direction; divide by 1 to keep the arithmetic defined.
+    norms[norms == 0.0] = 1.0
+    return [as_query_vector(vector) for vector in vectors / norms]
+
+
+def _cloudflare_error(body: dict) -> tuple[int | None, str]:
+    # Failures are {"success": false, "errors": [...]}; sometimes inside a 2xx.
+    if not isinstance(body, dict) or body.get("success") is not False:
+        return None, ""
+    errors = body.get("errors")
+    if not (isinstance(errors, list) and errors and isinstance(errors[0], dict)):
+        return None, ""
+    code = errors[0].get("code")
+    try:
+        code = None if code is None else int(code)
+    except (TypeError, ValueError):
+        return None, str(errors[0].get("message", ""))
+    return code, str(errors[0].get("message", ""))
+
+
+def _cloudflare_quota_error() -> EmbeddingError:
+    return EmbeddingError(
+        "The embedding service's free daily quota was used up. New "
+        "attempts fail until it resets at 00:00 UTC; this document can be "
+        "re-ingested after that.",
+        retryable=False,
+    )
 
 
 def _backoff(attempt: int) -> float:

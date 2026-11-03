@@ -83,8 +83,6 @@ def _pipeline_summary() -> dict | None:
     return {
         "stages": stages,
         "queued": stages[DocumentStage.QUEUED.value],
-        # Anything mid-pipeline, i.e. claimed but not finished. Non-zero with
-        # nothing moving is the signature of a stalled document.
         "in_progress": sum(
             stages[stage.value]
             for stage in (
@@ -147,9 +145,6 @@ class DocumentListView(APIView):
         queryset = access.documents_for(principal)
 
         if library_id:
-            # Scoping the document query by owner first, then checking the
-            # library belongs to them, means a foreign library_id returns 404
-            # rather than leaking whether that library exists.
             library = access.libraries_for(principal).filter(pk=library_id).first()
             if library is None:
                 return _error("not_found", "No such library.", status.HTTP_404_NOT_FOUND)
@@ -177,8 +172,6 @@ class UploadDocumentView(APIView):
         try:
             validated = uploads.validate_upload(upload)
         except uploads.UploadRejected as exc:
-            # 422: the request was well-formed and understood, but its contents
-            # cannot be processed. A 400 would suggest the shape was wrong.
             return _error(exc.code, exc.reason, status.HTTP_422_UNPROCESSABLE_ENTITY)
 
         exceeded = _quota_exceeded(principal)
@@ -189,12 +182,6 @@ class UploadDocumentView(APIView):
         if isinstance(library, Response):
             return library
 
-        # Stored before the row is created, so a queued document always has its
-        # bytes behind it. Creating the row first left a window where the
-        # pipeline worker picked up a queued document whose `storage_path` was
-        # still empty and failed it as "not in storage", while the upload then
-        # finished against an already-failed row -- a file that was safely in the
-        # bucket, marked failed because the worker looked a moment too early.
         try:
             stored = storage.upload_file(principal.id, validated.filename, upload)
         except storage.StorageNotConfiguredError as exc:
@@ -221,8 +208,6 @@ class UploadDocumentView(APIView):
                 storage_path=stored.path,
             )
         except Exception:
-            # The bytes are in the bucket but no row points at them, and nothing
-            # else would ever clean them up.
             try:
                 storage.delete_file(stored.path)
             except storage.StorageError:
@@ -253,16 +238,13 @@ class DocumentDetailView(APIView):
 
         storage_path = document.storage_path
 
-        # The row first, so a storage failure cannot leave a visible document
-        # pointing at nothing. Chunks cascade away with it.
+        # Row first: a storage failure must not leave a visible document pointing at nothing.
         document.delete()
 
         if storage_path:
             try:
                 storage.delete_file(storage_path)
             except storage.StorageError as exc:
-                # The user-visible outcome is already correct. This is a cleanup
-                # problem for an operator, not a failure to report to the caller.
                 logger.warning(
                     "Deleted document but could not remove %s from storage: %s",
                     storage_path,
@@ -289,8 +271,7 @@ def _quota_exceeded(principal: SupabasePrincipal) -> str | None:
 
     limit = profile.max_documents
     if limit <= 0:
-        # 0 means unlimited, which is explicit rather than implied by a null so
-        # that "no limit configured" and "no limit wanted" are the same thing.
+        # 0 means unlimited, not merely unconfigured.
         return None
 
     used = access.documents_for(principal).count()
@@ -329,15 +310,10 @@ class AskView(APIView):
             return _error(exc.code, exc.reason, status.HTTP_404_NOT_FOUND)
 
         try:
-            # The retrieval result is not used here: the citations and the
-            # retrieved list on the answer already carry what the client shows.
             answer, _ = chat.answer_question(
                 principal, session=session, question=question
             )
         except chat.AnswerError as exc:
-            # A rate limit or an outage is the caller's problem to retry, so 503
-            # with the code saying so. A misconfiguration will not fix itself, so
-            # 500 — a retry loop against a missing key never terminates.
             code = (
                 status.HTTP_503_SERVICE_UNAVAILABLE
                 if exc.retryable
@@ -350,9 +326,6 @@ class AskView(APIView):
             {
                 "session": ChatSessionSerializer(session).data,
                 "answer": answer.text,
-                # Only the passages the answer actually cited. `retrieved` is the
-                # full set considered, which the UI can show as "searched N
-                # passages" so a thin answer is visibly thin.
                 "citations": answer.citations,
                 "retrieved": answer.retrieved,
                 "used_context": answer.used_context,

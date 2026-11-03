@@ -21,8 +21,8 @@ the web process picks it up and carries it through parsing, chunking and
 embedding to ready. A Postgres advisory lock keeps exactly one worker
 ingesting, so this stays safe when several web processes are running.
 
-To keep embedding work out of the web process, turn the in-process worker off and
-run it as its own process instead:
+To run ingestion outside the web process instead — useful when the pipeline gets
+busy — turn the in-process worker off and run the command separately:
 
 ```bash
 REVIA_RUN_PIPELINE_IN_PROCESS=off uv run python backend/manage.py run_pipeline --loop
@@ -56,6 +56,7 @@ instead.
 | `uv run python backend/manage.py check` | Django system check |
 | `uv run python backend/manage.py run_pipeline` | One pass over queued documents |
 | `uv run python backend/manage.py run_pipeline --loop` | Keep polling (stands down if the in-process worker holds the lock) |
+| `uv run python backend/manage.py verify_embeddings` | Embed samples through the production Cloudflare path and report dimensions and norms |
 
 | Endpoint | Auth | Purpose |
 | --- | --- | --- |
@@ -153,24 +154,32 @@ retroactively change what an old answer claims it cited.
 
 ### Embeddings
 
-`EMBEDDING_PROVIDER` picks where embedding happens.
+Embedding runs on Cloudflare Workers AI, at model id `@cf/baai/bge-small-en-v1.5`
+— the same weights the stored vectors were made with, so no migration and no
+re-embedding was needed.
 
-- `local` (default) runs the model in this process. No API key, no network call
-  per document, no per-request cost. The model downloads once into
-  `EMBEDDING_CACHE_DIR`, so point that at a prepared copy to avoid needing the
-  network on first run.
-- `nvidia` calls NVIDIA's hosted API instead.
+The request pins `pooling: "cls"` and L2-normalises what comes back. Both are
+contract, not taste: the endpoint's default mean pooling is not comparable with
+what produced the stored vectors, and retrieval's MMR compares stored vectors by
+plain dot product, which is cosine similarity only when vectors are unit length.
+`EMBEDDING_QUERY_PREFIX` carries the BGE query instruction — Cloudflare does not
+apply it, and the chat path depends on it.
 
-`local` is the default because it is the only option that works with no external
-embedding account. The NVIDIA key this project was configured with has chat
-models but no embedding function, and every embedding request to it returned 404
-or 410.
+On the free tier the account gets 10,000 neurons/day (~85 lecture PDFs a day);
+when a day is spent, uploads land in `failed` with a reason that says so, and
+`manage.py reingest` clears them after the 00:00 UTC reset.
 
 `EMBED_MODEL` and `EMBEDDING_DIM` have to agree, and the dimension is baked into
 the `chunks.embedding` column width. Changing either means a migration and
 re-embedding every stored chunk: vectors from two models are not comparable even
 at the same dimension. `retrieval._check_dimension` refuses to search a library
 whose stored vectors are the wrong width rather than returning nonsense.
+
+Why hosted: the in-process model peaked past 500 MB during an embed on the 512 MB
+free tier, which ended in gunicorn killing its worker mid-request (the "worker
+timeout, worker killed" crash loop). Hosting the embedding dropped the same
+batch-embed peak to ≈81 MB. Deep reference for the whole backend, including the
+embedding contract: `docs/DESIGN.md`.
 
 ### Testing
 

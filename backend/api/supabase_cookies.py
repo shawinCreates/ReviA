@@ -10,8 +10,7 @@ from dataclasses import dataclass
 AUTH_COOKIE_MARKER = "auth-token"
 BASE64_PREFIX = "base64-"
 
-# Matches the chunk naming used by @supabase/ssr: any suffix, then `.` and a
-# chunk index with no leading zeros.
+# @supabase/ssr chunk naming: suffix, then "." and a no-leading-zero index.
 _CHUNK_SUFFIX = re.compile(r"^(?P<base>.+)\.(?P<index>0|[1-9][0-9]*)$")
 
 
@@ -65,9 +64,7 @@ def _combine(name: str, cookies: dict[str, str]) -> str | None:
     while True:
         chunk = cookies.get(f"{name}.{index}")
         if chunk is None:
-            # Matches `combineChunks`, which stops at the first gap. A missing
-            # middle chunk means the value is unrecoverable, so stop rather
-            # than silently concatenating two halves of different sessions.
+            # Like combineChunks: stop at the first gap rather than mixing sessions.
             break
         parts.append(chunk)
         index += 1

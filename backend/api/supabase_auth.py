@@ -88,8 +88,7 @@ def _fetch_verified_user(token: str) -> dict:
         with httpx.Client(timeout=settings.SUPABASE_AUTH_TIMEOUT_SECONDS) as client:
             response = client.get(url, headers=headers)
     except httpx.HTTPError as exc:
-        # A transport failure is not a rejected token. Say so distinctly, so the
-        # caller can return 503 rather than pretending the user is unauthenticated.
+        # Transport failure, not a rejected token: the caller answers 503, not 401.
         raise TokenVerificationError(f"supabase_auth_unavailable: {exc}") from exc
 
     if response.status_code in (401, 403):

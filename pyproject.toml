@@ -24,9 +24,11 @@ dependencies = [
     # Vector normalisation and nearest-neighbour arithmetic. pgvector's Python
     # side already requires it, and the retrieval layer uses it directly.
     "numpy",
-    # The in-process embedding model, so the app embeds text without an external
-    # account. ONNX-based, so it does not pull in a deep learning framework.
-    "fastembed",
+    # Direct pins so the CPU index below applies — torch arrives transitively
+    # via unstructured-inference, and source pins only bind direct deps.
+    "httpx",
+    "torch",
+    "torchvision",
 ]
 
 [dependency-groups]
@@ -68,3 +70,15 @@ known-first-party = ["api", "config"]
 "**/models.py" = ["RUF012"]
 "**/serializers.py" = ["RUF012"]
 "**/views.py" = ["RUF012"]
+
+# This machine has no GPU: pin torch to CPU wheels so syncs never pull the
+# multi-GB CUDA stack (nvidia-*, triton) requested by unstructured-inference.
+# Remove if a GPU ever appears.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }

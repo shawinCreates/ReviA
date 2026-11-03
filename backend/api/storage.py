@@ -11,8 +11,7 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
-#: Guards against a client that is constructed successfully but silently points
-#: nowhere, which is what an unset endpoint produces.
+#: Guards against a client that silently points nowhere (unset endpoint).
 _MISSING = object()
 
 
@@ -81,10 +80,7 @@ def _client():
 
 
 def build_object_path(owner_id: str, filename: str) -> str:
-    # `slugify` with `allow_unicode=False` gives an ASCII stem, and the
-    # extension is re-attached from the cleaned name rather than sliced off the
-    # slug: `slugify` drops the dot, so slicing produced "lecture-3pdf" and two
-    # different files could collide on one key.
+    # slugify() drops dots; the extension is re-attached, not sliced off.
     from django.utils.text import slugify
 
     from api.uploads import clean_filename
@@ -92,13 +88,9 @@ def build_object_path(owner_id: str, filename: str) -> str:
     name = clean_filename(filename)
     suffix = PurePosixPath(name).suffix.lower()
 
-    # The stem is the name without its extension, and slugified.
     stem = slugify(PurePosixPath(name).stem)[:80].strip("-") or "document"
 
-    # A random suffix, so two uploads of "lecture-3.pdf" do not overwrite each
-    # other. Deterministic naming would make the second upload silently replace
-    # the first, and the first document's stored_path would then point at
-    # different content.
+    # Random suffix: a re-upload of the same name must not replace the first.
     unique = uuid.uuid4().hex[:12]
 
     return f"{owner_id}/{stem}-{unique}{suffix}"
@@ -117,10 +109,6 @@ def upload_file(owner_id: str, filename: str, fileobj) -> StoredObject:
 
     try:
         client = _client()
-        # `upload_fileobj`, not `upload_file`. The latter's first argument is a
-        # path on the local filesystem, so handing it a file object fails with
-        # "Filename must be a string or a path-like object" — which reads like a
-        # bad argument type rather than the wrong method.
         client.upload_fileobj(
             fileobj,
             bucket,
@@ -131,8 +119,7 @@ def upload_file(owner_id: str, filename: str, fileobj) -> StoredObject:
     except StorageNotConfiguredError:
         raise
     except Exception as exc:
-        # boto3 raises a wide range of client errors; the class name is the most
-        # useful thing to keep without echoing credentials or file contents.
+        # Keep only the class name; never echo credentials or file contents.
         logger.exception("Upload of %s failed", path)
         raise StorageError(f"upload failed: {type(exc).__name__}") from exc
 

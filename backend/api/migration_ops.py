@@ -26,8 +26,7 @@ class CreateVectorExtension(PostgresOnlyOperation):
             schema_editor.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state):
-        # Deliberately left installed. Dropping a shared extension on rollback
-        # can break anything else in the project that depends on it.
+        # Left installed: dropping a shared extension breaks other dependents.
         return
 
     def describe(self):

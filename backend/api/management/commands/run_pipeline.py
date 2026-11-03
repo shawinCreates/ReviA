@@ -46,15 +46,10 @@ class Command(BaseCommand):
 
         try:
             while True:
-                # The same lock the in-process worker takes. Without it this
-                # command and that thread would each pick up the same queued
-                # document and process it twice, because `advance_stage` writes
-                # from a stale in-memory copy rather than a locked read.
+                # Same lock as the in-process worker; else both run one document.
                 with worker_lock() as acquired:
                     if not acquired:
-                        # Not an error: ingestion is already happening, which is
-                        # the normal state when the web process has the worker
-                        # in it. Standing down is what keeps it correct.
+                        # Not an error: the web process's worker already owns it.
                         self.stdout.write(
                             "Another ingestion worker is running; standing down. "
                             "Set REVIA_RUN_PIPELINE_IN_PROCESS=off to stop the "
@@ -69,9 +64,6 @@ class Command(BaseCommand):
                     "requeued {retried}  reaped {reaped}".format(**summary)
                 )
 
-                # Nothing to do: sleep before asking again, rather than
-                # hammering the database in a tight loop. In a single pass there
-                # is nothing left to wait for.
                 if not looping or summary["attempted"] < limit:
                     if not looping:
                         break
@@ -80,7 +72,4 @@ class Command(BaseCommand):
 
                 time.sleep(interval)
         except KeyboardInterrupt:
-            # Expected: this command is meant to be stopped with Ctrl-C and run
-            # again, and a document mid-pipeline is left in its current stage
-            # for the next pass rather than being abandoned silently.
             self.stdout.write("Stopping. Any document mid-pipeline stays where it is.")

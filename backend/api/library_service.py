@@ -78,9 +78,7 @@ def advance_stage(document: Document, target: DocumentStage) -> Document:
     current_position = STAGE_ORDER.index(current)
     target_position = STAGE_ORDER.index(target)
 
-    # Exactly one step forwards. Allowing any larger jump would let a bug that
-    # skips embedding mark a document ready with no embeddings in the database,
-    # and the failure would only show up as an uncited answer much later.
+    # Exactly one step forwards; no stage jump may skip embedding.
     if target_position != current_position + 1:
         raise StageTransitionError(
             f"cannot move from {current!r} to {target!r}: the pipeline advances one stage at a time"

@@ -10,14 +10,11 @@ from api import ingestion
 
 logger = logging.getLogger(__name__)
 
-#: Guards `start`. Two callers racing to start the worker would otherwise spawn
-#: two threads in one process, both polling, which the advisory lock would
-#: tolerate but which doubles the idle database traffic for no benefit.
+#: Guards start(); racers would spawn two polling threads.
 _start_lock = threading.Lock()
 
 _thread: threading.Thread | None = None
-#: Set so a test or a management command can ask whether the worker is running
-#: without reaching into the module's internals.
+#: Lets a test or command ask whether the worker runs, without internals.
 _started = threading.Event()
 
 
@@ -35,8 +32,6 @@ def start() -> bool:
         thread = threading.Thread(
             target=_run,
             name="revia-pipeline",
-            # Daemon so a normal interpreter shutdown is not held up waiting for
-            # a pass that is sleeping between polls.
             daemon=True,
         )
         thread.start()
@@ -55,13 +50,11 @@ def stop(timeout: float = 5.0) -> None:
         _started.clear()
 
     if thread is not None and thread.is_alive():
-        # The loop checks this between passes, so a pass already under way runs
-        # to completion rather than being interrupted mid-transaction.
+        # Checked between passes; a pass under way runs to completion.
         stop_requested.set()
         thread.join(timeout=timeout)
 
-#: Read by `_run` between passes. Separate from `_thread` because a thread that
-#: is mid-pass must finish that pass before noticing a stop request.
+#: Read between passes; a mid-pass thread finishes before noticing a stop.
 stop_requested = threading.Event()
 
 
@@ -70,14 +63,10 @@ def _run() -> None:
         try:
             worked = _pass()
         except Exception:
-            # Nothing above this catches anything. Without this the thread dies,
-            # uploads stop progressing, and the symptom reads as "ingestion is
-            # broken" rather than "a background thread exited".
             logger.exception("Ingestion worker pass failed; continuing")
             worked = False
 
-        # Between passes, not only when idle: a connection left open by a failed
-        # pass would otherwise stay checked out for the life of the thread.
+        # Also after failed passes; else a connection lingers for the thread's life.
         connections.close_all()
 
         if stop_requested.wait(_interval(worked)):
@@ -87,8 +76,6 @@ def _run() -> None:
 def _pass() -> bool:
     with ingestion.worker_lock() as acquired:
         if not acquired:
-            # Another worker has it. It is doing this work; standing by is the
-            # correct behaviour, not a failure.
             logger.debug("Ingestion worker stood down: another worker holds the lock")
             return False
 

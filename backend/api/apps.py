@@ -8,11 +8,7 @@ from django.core.checks import Error, Warning, register
 
 logger = logging.getLogger(__name__)
 
-#: The dimension baked into migration 0002 when the chunks table was created.
-#: pgvector's column type and the HNSW index are both built for this width, so
-#: changing the configured dimension without a migration leaves a column that
-#: silently rejects the new vectors at insert time — or worse, accepts them and
-#: makes similarity search meaningless.
+#: The dimension migration 0002 baked into chunks.embedding and its HNSW index.
 MIGRATED_EMBEDDING_DIM = 384
 
 
@@ -65,10 +61,7 @@ def check_allowed_upload_extensions(app_configs, **kwargs):
 
     return []
 
-#: Commands that never serve requests, so they must not start a worker. A
-#: worker during `migrate` would try to ingest before the tables exist; during
-#: `run_pipeline` it would simply compete with the command the operator asked
-#: for. `runserver` and the WSGI/ASGI entry points are the ones that serve.
+#: Commands that serve requests; only these may start the worker.
 _SERVING_COMMANDS = frozenset({"runserver", "gunicorn", "uvicorn", "daphne", "hypercorn"})
 
 
@@ -86,22 +79,17 @@ class ApiConfig(AppConfig):
         from django.conf import settings
 
         if settings.TESTING:
-            # The suite drives ingestion directly and asserts on exact counts; a
-            # background thread would race it and make results depend on timing.
+            # The suite drives ingestion directly; a thread would race it.
             return
 
         if not settings.RUN_PIPELINE_IN_PROCESS:
-            # Running `manage.py run_pipeline` as its own process instead. The
-            # advisory lock means the two arrangements can coexist safely.
+            # The advisory lock makes manage.py run_pipeline safe alongside.
             return
 
         if not _is_serving():
             return
 
-        # The autoreloader runs this method in a supervising process that then
-        # forks the real one. Starting a worker in the supervisor means two
-        # threads, and the child's database connections are not the supervisor's,
-        # so the lock is not enough to make that harmless.
+        # The autoreloader's supervisor would double threads and split connections.
         if _is_autoreload_supervisor():
             return
 
@@ -113,8 +101,6 @@ class ApiConfig(AppConfig):
 def _is_serving() -> bool:
     argv = sys.argv
 
-    # `uvicorn api:app`, `gunicorn config.wsgi`, `hypercorn ...` put the server
-    # name first with no subcommand.
     if argv and argv[0].rsplit("/", 1)[-1].rsplit("\\", 1)[-1] in {
         "gunicorn",
         "uvicorn",
