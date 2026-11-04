@@ -225,3 +225,8 @@ LOGGING = {
     },
     "root": {"handlers": ["console"], "level": os.environ.get("DJANGO_LOG_LEVEL", "INFO")},
 }
+
+# Production optimizations
+if not DEBUG:
+    PIPELINE_BATCH_SIZE = int(os.environ.get("PIPELINE_BATCH_SIZE", "3"))
+    RUN_PIPELINE_IN_PROCESS = _flag("REVIA_RUN_PIPELINE_IN_PROCESS", False)  # Run separately to save memory

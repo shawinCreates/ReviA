@@ -16,6 +16,11 @@ import { WakeServer } from "@/components/health-status";
 import { ButtonLink, Card, Kbd, SectionLabel } from "@/components/ui";
 
 const HERO_IMAGE = "/images/hero-notes.jpg";
+
+export const metadata = {
+  title: `${APP_NAME}: ${APP_TAGLINE}`,
+  alternates: { canonical: "/" },
+};
 const NOTES_IMAGE = "/images/notes-margin.jpg";
 
 const FEATURES = [
@@ -99,7 +104,7 @@ export default function Home() {
       <WakeServer />
       <SiteHeader />
 
-      <main>
+      <main id="main" tabIndex={-1}>
         <section className="relative overflow-hidden border-b border-line">
           <div className="warm-wash absolute inset-0" />
           <div className="hairline-grid absolute inset-0 opacity-[0.55]" />
@@ -133,6 +138,7 @@ export default function Home() {
                     width={1200}
                     height={675}
                     priority
+                    sizes="(max-width: 768px) 100vw, 720px"
                     className="w-full"
                   />
                 </div>
@@ -263,13 +269,14 @@ export default function Home() {
                     ].join(" ")}
                   >
                     {feature.surface === "image" ? (
-                      <Image
-                        src={NOTES_IMAGE}
-                        alt="A stack of open notebooks and reading glasses left on a table"
-                        width={1024}
-                        height={1280}
-                        className="mb-7 w-full max-h-[440px] border border-line object-cover"
-                      />
+                    <Image
+                      src={NOTES_IMAGE}
+                      alt="A stack of open notebooks and reading glasses left on a table"
+                      width={1024}
+                      height={1280}
+                      sizes="(max-width: 768px) 100vw, 340px"
+                      className="mb-7 w-full max-h-[440px] border border-line object-cover"
+                    />
                     ) : null}
                     <h3 className="text-[17px] leading-snug text-ink">
                       {feature.title}

@@ -15,6 +15,10 @@ export const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 
 export const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
 
+// Public site URL used for canonical links and Open Graph metadata. Optional:
+// when omitted, relative canonical URLs are used instead.
+export const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "";
+
 export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
 export const SUPPORTED_UPLOAD_EXTENSIONS = [".pdf", ".docx", ".pptx"] as const;

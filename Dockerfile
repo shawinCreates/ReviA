@@ -30,3 +30,18 @@ EXPOSE 8000
 
 # One worker (the advisory-lock pipeline worker wants a single process; 512MB tier).
 CMD ["/bin/sh", "-c", "gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers 1 --threads 4 --access-logfile -"]
+
+# Pre-install spaCy model to avoid runtime downloads
+RUN python -m spacy download en_core_web_sm==3.8.0 || true
+
+# Set environment variables to help with model caching
+ENV HF_HOME=/app/.cache/huggingface \
+    TRANSFORMERS_CACHE=/app/.cache/huggingface \
+    UNSTRUCTURED_CACHE_DIR=/app/.cache/unstructured \
+    XDG_CACHE_HOME=/app/.cache
+
+# Increase gunicorn timeout for slow document parsing
+CMD ["/bin/sh", "-c", "gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers 1 --threads 4 --timeout 600 --graceful-timeout 300 --keep-alive 5 --access-logfile -"]
+
+# Create cache directories
+RUN mkdir -p /app/.cache/huggingface /app/.cache/unstructured

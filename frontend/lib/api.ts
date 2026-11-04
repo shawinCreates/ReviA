@@ -50,6 +50,8 @@ type AskResponse = {
   used_context: number;
 };
 
+export const REQUEST_TIMEOUT_MS = 30_000;
+
 export class ApiError extends Error {
   readonly code: string;
   readonly status: number;
@@ -63,6 +65,12 @@ export class ApiError extends Error {
     this.retryable = status === 0 || status === 429 || status >= 500;
   }
 }
+
+export function clearAccessToken() {
+  cachedAccessToken = null;
+}
+
+export const UNAUTHENTICATED = "revia:unauthenticated";
 
 function friendly(error: unknown): ApiError {
   if (error instanceof ApiError) return error;
@@ -96,6 +104,11 @@ async function readError(response: Response): Promise<ApiError> {
           : `The API returned ${response.status}.`;
   }
 
+  if (response.status === 401 && typeof window !== "undefined") {
+    clearAccessToken();
+    window.dispatchEvent(new CustomEvent(UNAUTHENTICATED));
+  }
+
   return new ApiError(message, code, response.status);
 }
 
@@ -110,9 +123,13 @@ async function browserFetch(path: string, init: RequestInit = {}): Promise<Respo
   const token = await accessToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
+  const signal =
+    init.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+
   return fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers,
+    signal,
     credentials: "include",
     cache: "no-store",
   });

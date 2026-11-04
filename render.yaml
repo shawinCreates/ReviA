@@ -43,8 +43,13 @@ services:
         sync: false
       - key: GROQ_API_KEY
         sync: false
-      # Embeddings run on Cloudflare Workers AI in production.
       - key: CLOUDFLARE_ACCOUNT_ID
         sync: false
       - key: CLOUDFLARE_API_TOKEN
         sync: false
+      - key: REVIA_RUN_PIPELINE_IN_PROCESS
+        value: "off"
+      - key: PIPELINE_BATCH_SIZE
+        value: "3"
+      - key: UNSTRUCTURED_DISABLE_NOTICE
+        value: "1"

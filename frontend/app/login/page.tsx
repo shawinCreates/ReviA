@@ -4,7 +4,13 @@ import { Suspense } from "react";
 import { AuthForm } from "@/components/auth-form";
 import { Wordmark } from "@/components/chrome";
 
-export const metadata = { title: "Sign in" };
+export const metadata = {
+  title: "Sign in",
+  description:
+    "Sign in to ReviA to access your private library, upload documents, and keep your conversations between visits.",
+  robots: { index: false, follow: true },
+  alternates: { canonical: "/login" },
+};
 
 export default async function LoginPage({
   searchParams,

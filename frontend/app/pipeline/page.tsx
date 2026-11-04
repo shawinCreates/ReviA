@@ -9,7 +9,13 @@ import { pingApi } from "@/lib/api";
 import { loadDocuments } from "@/lib/api-server";
 import { STAGES } from "@/lib/config";
 
-export const metadata = { title: "Ingestion pipeline" };
+export const metadata = {
+  title: "Ingestion pipeline",
+  description:
+    "Watch your uploads move through queued, parsing, chunking, embedding and ready, with a stage and progress for every document.",
+  robots: { index: false, follow: true },
+  alternates: { canonical: "/pipeline" },
+};
 
 export default async function PipelinePage() {
   if (!(await pingApi())) return <HealthGate path="/pipeline" />;
@@ -19,7 +25,7 @@ export default async function PipelinePage() {
   const documents = user ? await loadDocuments() : [];
 
   return (
-    <div className="flex min-h-dvh flex-col">
+    <div className="flex min-h-dvh flex-col" id="main" tabIndex={-1}>
       <AppHeader />
       <main className="flex-1">
         <div className="mx-auto max-w-6xl px-6 py-16">
